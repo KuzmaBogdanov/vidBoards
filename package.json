@@ -1,0 +1,79 @@
+{
+  "name": "vidboards",
+  "version": "1.0.0",
+  "description": "Free video and image reference board",
+  "main": "src/main.js",
+  "author": "Kuzma Bogdanov",
+  "license": "MIT",
+  "scripts": {
+    "start": "electron .",
+    "build": "electron-builder --win --x64",
+    "build:mac": "electron-builder --mac",
+    "build:linux": "electron-builder --linux",
+    "build:all": "electron-builder -mwl",
+    "build:icon": "node -e \"const p=require('png2icons'),fs=require('fs');const src=fs.readFileSync('assets/icon.png');const ico=p.createICO(src,p.BILINEAR,0,true);fs.writeFileSync('assets/icon.ico',ico);const icns=p.createICNS(src,p.BILINEAR,0);if(icns)fs.writeFileSync('assets/icon.icns',icns);console.log('Icons generated.')\""
+  },
+  "build": {
+    "appId": "app.vidboards",
+    "productName": "VidBoards",
+    "copyright": "© 2026 Kuzma Bogdanov",
+    "directories": {
+      "output": "dist"
+    },
+    "files": [
+      "src/**/*",
+      "assets/**/*",
+      "package.json"
+    ],
+    "win": {
+      "icon": "assets/icon.ico",
+      "target": [
+        {
+          "target": "nsis",
+          "arch": ["x64"]
+        }
+      ]
+    },
+    "nsis": {
+      "oneClick": false,
+      "allowToChangeInstallationDirectory": true,
+      "createDesktopShortcut": true,
+      "shortcutName": "VidBoards"
+    },
+    "mac": {
+      "icon": "assets/icon.icns",
+      "category": "public.app-category.graphics-design",
+      "darkModeSupport": true,
+      "minimumSystemVersion": "11.0",
+      "target": [
+        { "target": "dmg",  "arch": ["x64", "arm64"] },
+        { "target": "zip",  "arch": ["x64", "arm64"] }
+      ]
+    },
+    "dmg": {
+      "title": "${productName} ${version}",
+      "icon": "assets/icon.icns",
+      "window": { "width": 540, "height": 380 }
+    },
+    "linux": {
+      "icon": "assets/icon.png",
+      "category": "Graphics",
+      "target": [
+        { "target": "AppImage", "arch": ["x64"] },
+        { "target": "deb",      "arch": ["x64"] },
+        { "target": "rpm",      "arch": ["x64"] }
+      ]
+    },
+    "deb": {
+      "depends": ["libgtk-3-0", "libnotify4", "libnss3", "libxss1", "libxtst6", "xdg-utils", "libatspi2.0-0", "libuuid1"]
+    }
+  },
+  "devDependencies": {
+    "@resvg/resvg-js": "^2.6.2",
+    "electron": "^42.3.0",
+    "electron-builder": "^26.8.1",
+    "png2icons": "^2.0.1"
+  },
+  "keywords": [],
+  "type": "commonjs"
+}

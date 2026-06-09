@@ -1,0 +1,10 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024" width="1024" height="1024">
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="1024" y2="1024" gradientUnits="userSpaceOnUse">
+      <stop offset="0%"   stop-color="#2a0a5e"/>
+      <stop offset="100%" stop-color="#4a1a9e"/>
+    </linearGradient>
+  </defs>
+  <!-- rect with 7% inset padding so edges don't clip in small contexts (title bar, taskbar) -->
+  <rect x="72" y="72" width="880" height="880" rx="210" ry="210" fill="url(#bg)"/>
+</svg>

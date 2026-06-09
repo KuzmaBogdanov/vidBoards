@@ -1,0 +1,51 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+  <meta charset="UTF-8">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self' 'unsafe-inline' 'unsafe-eval' file: data: blob: https://cdn.jsdelivr.net https://fonts.googleapis.com https://fonts.gstatic.com">
+  <title>VidBoards</title>
+  <link rel="stylesheet" href="styles.css">
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@tabler/icons-webfont@2.44.0/tabler-icons.min.css">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Montserrat:ital,wght@0,400;0,700;1,400;1,700&family=Jost:ital,wght@0,400;0,700;1,400;1,700&display=swap" rel="stylesheet">
+</head>
+<body class="dark">
+
+<!-- ── TITLEBAR ── -->
+<div class="titlebar">
+  <div class="logo">
+    <span class="logo-text">VidBoards</span>
+    <span class="logo-ver">v1.0</span>
+  </div>
+  <div class="titlebar-tabs" id="titlebar-tabs"></div>
+  <div class="titlebar-right">
+    <button class="tb-icon-btn" id="btn-settings" title="Настройки"><i class="ti ti-settings"></i></button>
+  </div>
+</div>
+
+<!-- ── SCREENS ── -->
+<div id="screen-home"     class="screen active"></div>
+<div id="screen-board"    class="screen"></div>
+<div id="screen-settings" class="screen"></div>
+
+<!-- ── CONTEXT MENU ── -->
+<div class="ctx-menu" id="ctx-menu"></div>
+
+<!-- ── MODAL ── -->
+<div class="modal-overlay" id="modal-overlay">
+  <div class="modal">
+    <div class="modal-head">
+      <span class="modal-title" id="modal-title"></span>
+      <button class="modal-close" id="modal-close"><i class="ti ti-x"></i></button>
+    </div>
+    <div class="modal-body" id="modal-body"></div>
+  </div>
+</div>
+
+<!-- ── HINT TOAST ── -->
+<div class="hint" id="hint"></div>
+
+<script src="renderer.js"></script>
+</body>
+</html>
