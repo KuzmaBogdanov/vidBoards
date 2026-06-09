@@ -4,6 +4,7 @@ landing/
 .claude/
 CLAUDE.md
 assets/screen.png
+
 src/*_backup*
 *.log
 .DS_Store
