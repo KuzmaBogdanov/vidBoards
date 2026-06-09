@@ -29,10 +29,10 @@ That's how VidBoards was born.
 ## Features
 
 - **Works with any videos and images** — drag files directly onto the canvas
-- **Reads metadata** (prompt, seed, workflow) from PNG, JPEG, MP4
-- **Sequence mode** — flip through images one by one with keyboard
+- **Sequence mode** — select several different videos and play them in the order you want without switching to a video editing program
 - **Timeline player** — plays all board videos simultaneously
 - **Color filters, canvas search, multi-select**
+- **Reads metadata** (prompt, seed, workflow) from PNG, JPEG, MP4
 - **Fully offline** — no cloud, no account, no telemetry
 
 ## Download
