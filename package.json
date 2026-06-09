@@ -3,7 +3,10 @@
   "version": "1.0.0",
   "description": "Free video and image reference board",
   "main": "src/main.js",
-  "author": "Kuzma Bogdanov",
+  "author": {
+    "name": "Kuzma Bogdanov",
+    "email": "kuzmabogdanov@gmail.com"
+  },
   "license": "MIT",
   "scripts": {
     "start": "electron .",
