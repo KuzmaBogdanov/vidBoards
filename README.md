@@ -23,7 +23,9 @@
 ---
 
 ![VidBoards Screenshot](assets/screen.jpg)
-
+Friends, hello everyone. <br>
+Generating with local models, I often face an abundance of content coming out of different prompts and seed numbers, created during the search for the right generations. Reviewing files one by one or in a video editing program turned out to be problematic — sometimes you need to compare frame by frame, or watch a lot of material at once in search of the perfect one — this pushed me towards the idea of creating a board where all of this could be done. <br>
+That's how VidBoards was born.
 ## Features
 
 - **Works with any videos and images** — drag files directly onto the canvas
