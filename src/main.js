@@ -1,10 +1,12 @@
-const { app, BrowserWindow, ipcMain, dialog, shell, Menu } = require('electron');
+const { app, BrowserWindow, ipcMain, dialog, shell, Menu, clipboard } = require('electron');
+const { autoUpdater } = require('electron-updater');
 const path = require('path');
 const fs = require('fs');
 const os = require('os');
 
 let mainWindow;
 let PROJECTS_DIR, TRASH_DIR;
+let quittingForUpdate = false;
 
 // macOS: keep a minimal menu so system shortcuts (Cmd+C/V/Q etc.) work
 if (process.platform === 'darwin') {
@@ -57,8 +59,23 @@ function createWindow() {
   });
 
   mainWindow.loadFile(path.join(__dirname, 'index.html'));
-  mainWindow.once('ready-to-show', () => mainWindow.show());
+  mainWindow.once('ready-to-show', () => {
+    mainWindow.show();
+    if(app.isPackaged) {
+      autoUpdater.autoDownload = false;
+      autoUpdater.autoInstallOnAppQuit = false;
+      autoUpdater.on('update-available', info => {
+        mainWindow.webContents.send('update-available', info.version);
+      });
+      autoUpdater.on('update-downloaded', () => {
+        mainWindow.webContents.send('update-downloaded');
+      });
+      autoUpdater.on('error', () => {});
+      setTimeout(() => autoUpdater.checkForUpdates().catch(() => {}), 5000);
+    }
+  });
   mainWindow.on('close', e => {
+    if (quittingForUpdate) return;
     e.preventDefault();
     mainWindow.webContents.send('app-close-requested');
   });
@@ -308,6 +325,20 @@ ipcMain.handle('save-settings', (_, s) => {
 ipcMain.handle('get-locale',      () => app.getLocale());
 ipcMain.handle('open-url',        (_, url) => shell.openExternal(url));
 ipcMain.handle('get-desktop-dir', () => app.getPath('desktop'));
+ipcMain.handle('download-update', () => autoUpdater.downloadUpdate().catch(() => {}));
+ipcMain.handle('quit-and-install', () => { quittingForUpdate = true; autoUpdater.quitAndInstall(false, true); });
+
+ipcMain.handle('paste-clipboard-image', () => {
+  try {
+    const img = clipboard.readImage();
+    if(img.isEmpty()) return null;
+    const dir = path.join(PROJECTS_DIR, 'pasted');
+    if(!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
+    const filePath = path.join(dir, `paste_${Date.now()}.png`);
+    fs.writeFileSync(filePath, img.toPNG());
+    return filePath;
+  } catch { return null; }
+});
 
 ipcMain.handle('save-png', (_, dataUrl, name, folder) => {
   try {

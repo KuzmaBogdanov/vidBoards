@@ -41,15 +41,16 @@ jobs:
         run: npm ci
 
       - name: Build Windows installer
-        run: npm run build
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: npm run build -- --publish never
 
       - name: Upload artifacts
         uses: actions/upload-artifact@v4
         with:
           name: windows-dist
-          path: dist/*.exe
+          path: |
+            dist/*.exe
+            dist/latest.yml
+            dist/*.blockmap
           retention-days: 7
 
   # ────────────────────────────────────────
@@ -74,15 +75,13 @@ jobs:
         run: npm ci
 
       - name: Build macOS DMG
-        run: npm run build:mac
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          # Code signing (optional — remove if you don't have an Apple Developer account)
-          # CSC_LINK:            ${{ secrets.MAC_CERT_P12_BASE64 }}
-          # CSC_KEY_PASSWORD:    ${{ secrets.MAC_CERT_PASSWORD }}
-          # APPLE_ID:            ${{ secrets.APPLE_ID }}
-          # APPLE_APP_SPECIFIC_PASSWORD: ${{ secrets.APPLE_APP_PASSWORD }}
-          # APPLE_TEAM_ID:       ${{ secrets.APPLE_TEAM_ID }}
+        run: npm run build:mac -- --publish never
+        # env: (add MAC signing secrets here when ready)
+        #   CSC_LINK:            ${{ secrets.MAC_CERT_P12_BASE64 }}
+        #   CSC_KEY_PASSWORD:    ${{ secrets.MAC_CERT_PASSWORD }}
+        #   APPLE_ID:            ${{ secrets.APPLE_ID }}
+        #   APPLE_APP_SPECIFIC_PASSWORD: ${{ secrets.APPLE_APP_PASSWORD }}
+        #   APPLE_TEAM_ID:       ${{ secrets.APPLE_TEAM_ID }}
 
       - name: Upload artifacts
         uses: actions/upload-artifact@v4
@@ -91,6 +90,8 @@ jobs:
           path: |
             dist/*.dmg
             dist/*.zip
+            dist/latest-mac.yml
+            dist/*.blockmap
           retention-days: 7
 
   # ────────────────────────────────────────
@@ -119,9 +120,7 @@ jobs:
         run: npm ci
 
       - name: Build Linux packages
-        run: npm run build:linux
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: npm run build:linux -- --publish never
 
       - name: Upload artifacts
         uses: actions/upload-artifact@v4
@@ -131,6 +130,8 @@ jobs:
             dist/*.AppImage
             dist/*.deb
             dist/*.rpm
+            dist/latest-linux.yml
+            dist/*.blockmap
           retention-days: 7
 
   # ────────────────────────────────────────
@@ -168,7 +169,7 @@ jobs:
         uses: softprops/action-gh-release@v2
         with:
           name: VidBoards ${{ github.ref_name }}
-          draft: true           # set to false to publish immediately
+          draft: false
           prerelease: false
           generate_release_notes: true
           files: release-assets/*
