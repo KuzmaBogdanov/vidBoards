@@ -7,6 +7,7 @@ const os = require('os');
 
 log.transports.file.level = 'info';
 autoUpdater.logger = log;
+autoUpdater.disableWebInstaller = true;
 
 let mainWindow;
 let PROJECTS_DIR, TRASH_DIR;
