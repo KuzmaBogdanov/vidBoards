@@ -77,7 +77,7 @@ const T = {
     grid_style:'Сетка канваса', grid_dots:'Точки', grid_lines:'Линии', grid_cross:'Кресты', grid_chess:'Шахматы', grid_none:'Нет',
     zoom_speed:'Скорость зума', zoom_speed_sub:'шаг при прокрутке колёсика (1–30%)',
     update_available:'Доступно обновление', update_changelog:'Что нового', update_btn:'Обновить',
-    update_downloading:'Загрузка…', update_restart:'Перезапустить',
+    update_downloading:'Загрузка…', update_restart:'Перезапустить', update_error:'Ошибка загрузки',
     update_confirm:'Обновить VidBoards?', update_confirm_sub:'Приложение закроется и перезапустится для установки обновления.',
     update_yes:'Обновить', update_no:'Позже',
   },
@@ -155,7 +155,7 @@ const T = {
     grid_style:'Canvas Grid', grid_dots:'Dots', grid_lines:'Lines', grid_cross:'Crosses', grid_chess:'Chess', grid_none:'None',
     zoom_speed:'Zoom Speed', zoom_speed_sub:'scroll wheel step (1–30%)',
     update_available:'Update Available', update_changelog:'What\'s New', update_btn:'Update',
-    update_downloading:'Downloading…', update_restart:'Restart',
+    update_downloading:'Downloading…', update_restart:'Restart', update_error:'Download failed',
     update_confirm:'Update VidBoards?', update_confirm_sub:'The app will close and restart to install the update.',
     update_yes:'Update', update_no:'Later',
   }
@@ -200,7 +200,8 @@ let multiDragOX=0,multiDragOY=0;
 const multiDragC=new Map(),multiDragL=new Map(),multiDragS=new Map();
 let selectedStickyId=null;
 let homeView='recent';
-let updateAvailableVersion=null, updateReady=false, updateDownloading=false, updateProgress=0;
+let updateAvailableVersion=null, updateReady=false, updateDownloading=false, updateProgress=0, updateErrored=false;
+let _updateProgressTimer=null;
 
 // ── УТИЛИТЫ ─────────────────────────────────────────────────────────
 const t = k => (T[lang]&&T[lang][k])?T[lang][k]:k;
@@ -573,9 +574,11 @@ function renderUpdateBanner(){
   const btnUp=document.createElement('button');
   btnUp.id='btn-do-update';
   btnUp.style.cssText='width:100%;height:26px;border-radius:6px;border:none;background:var(--accent);color:#fff;font-size:11px;font-weight:600;cursor:pointer;display:flex;align-items:center;justify-content:center;';
-  if(updateDownloading){btnUp.textContent=t('update_downloading');btnUp.disabled=true;btnUp.style.opacity='0.6';}
+  if(updateErrored){btnUp.textContent=t('update_error');btnUp.style.background='var(--red,#e05)';btnUp.disabled=false;}
+  else if(updateDownloading){btnUp.textContent=t('update_downloading');btnUp.disabled=true;btnUp.style.opacity='0.6';}
   else if(updateReady){btnUp.textContent=t('update_restart');}
   else{btnUp.textContent=t('update_btn');}
+  if(updateErrored){btnUp.onclick=()=>{updateErrored=false;renderUpdateBanner();};}
   btnUp.onclick=()=>{
     if(updateReady){
       openModal(t('update_confirm'),`<p class="m-text">v${updateAvailableVersion}</p><p class="m-sub">${t('update_confirm_sub')}</p>`,t('update_yes'),'ok',()=>api.quitAndInstall());
@@ -583,8 +586,10 @@ function renderUpdateBanner(){
       return;
     }
     openModal(t('update_confirm'),`<p class="m-text">v${updateAvailableVersion}</p><p class="m-sub">${t('update_confirm_sub')}</p>`,t('update_yes'),'ok',async()=>{
-      updateDownloading=true;renderUpdateBanner();
-      api.downloadUpdate().catch(()=>{updateDownloading=false;renderUpdateBanner();});
+      updateDownloading=true;updateErrored=false;updateProgress=0;renderUpdateBanner();
+      if(_updateProgressTimer)clearTimeout(_updateProgressTimer);
+      _updateProgressTimer=setTimeout(()=>{if(updateDownloading){updateDownloading=false;updateErrored=true;renderUpdateBanner();}},90000);
+      api.downloadUpdate().catch(()=>{if(_updateProgressTimer)clearTimeout(_updateProgressTimer);updateDownloading=false;updateErrored=true;renderUpdateBanner();});
     });
     const mc=document.getElementById('m-cancel');if(mc)mc.textContent=t('update_no');
   };
@@ -3201,15 +3206,16 @@ async function init(){
   renderTabs();
   setInterval(checkMissingFiles,30000);
   api.on('update-available',(version)=>{updateAvailableVersion=version;renderUpdateBanner();});
-  api.on('update-downloaded',()=>{updateReady=true;updateDownloading=false;updateProgress=0;renderUpdateBanner();});
+  api.on('update-downloaded',()=>{if(_updateProgressTimer)clearTimeout(_updateProgressTimer);updateReady=true;updateDownloading=false;updateProgress=0;renderUpdateBanner();});
   api.on('update-progress',(pct)=>{
     updateProgress=pct;
+    if(_updateProgressTimer){clearTimeout(_updateProgressTimer);_updateProgressTimer=setTimeout(()=>{if(updateDownloading){updateDownloading=false;updateErrored=true;renderUpdateBanner();}},90000);}
     const fill=document.getElementById('update-progress-fill');
     const label=document.getElementById('update-progress-pct');
-    if(fill){fill.style.width=pct+'%';}
-    else{renderUpdateBanner();}
+    if(fill){fill.style.width=pct+'%';}else{renderUpdateBanner();}
     if(label){label.textContent=pct+'%';}
   });
+  api.on('update-error',(msg)=>{if(_updateProgressTimer)clearTimeout(_updateProgressTimer);updateDownloading=false;updateErrored=true;renderUpdateBanner();console.error('update-error:',msg);});
   api.on('app-close-requested',()=>{
     const dirty=boardProjects.filter(p=>p._dirty);
     if(!dirty.length){api.forceClose();return;}

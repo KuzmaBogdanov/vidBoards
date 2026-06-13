@@ -73,7 +73,9 @@ function createWindow() {
       autoUpdater.on('download-progress', info => {
         mainWindow.webContents.send('update-progress', Math.round(info.percent));
       });
-      autoUpdater.on('error', () => {});
+      autoUpdater.on('error', (err) => {
+        mainWindow.webContents.send('update-error', err ? err.message : 'unknown');
+      });
       setTimeout(() => autoUpdater.checkForUpdates().catch(() => {}), 5000);
     }
   });
@@ -328,7 +330,9 @@ ipcMain.handle('save-settings', (_, s) => {
 ipcMain.handle('get-locale',      () => app.getLocale());
 ipcMain.handle('open-url',        (_, url) => shell.openExternal(url));
 ipcMain.handle('get-desktop-dir', () => app.getPath('desktop'));
-ipcMain.handle('download-update', () => autoUpdater.downloadUpdate().catch(() => {}));
+ipcMain.handle('download-update', () => autoUpdater.downloadUpdate().catch(err => {
+  mainWindow.webContents.send('update-error', err ? err.message : 'download failed');
+}));
 ipcMain.handle('quit-and-install', () => { quittingForUpdate = true; autoUpdater.quitAndInstall(false, true); });
 
 ipcMain.handle('paste-clipboard-image', () => {
