@@ -38,6 +38,7 @@ contextBridge.exposeInMainWorld('api', {
   getDefaultProjectsDir: ()          => ipcRenderer.invoke('get-default-projects-dir'),
   getDesktopDir:         ()          => ipcRenderer.invoke('get-desktop-dir'),
   savePng:   (dataUrl, name, folder) => ipcRenderer.invoke('save-png', dataUrl, name, folder),
+  pasteClipboardImage: () => ipcRenderer.invoke('paste-clipboard-image'),
   saveThumb: (vdbPath, dataUrl)      => ipcRenderer.invoke('save-thumb', vdbPath, dataUrl),
 
   // Система
@@ -46,5 +47,7 @@ contextBridge.exposeInMainWorld('api', {
   loadSettings: ()    => ipcRenderer.invoke('load-settings'),
   saveSettings: (s)   => ipcRenderer.invoke('save-settings', s),
 
+  downloadUpdate:  () => ipcRenderer.invoke('download-update'),
+  quitAndInstall:  () => ipcRenderer.invoke('quit-and-install'),
   on: (channel, fn) => ipcRenderer.on(channel, (_, ...args) => fn(...args)),
 });

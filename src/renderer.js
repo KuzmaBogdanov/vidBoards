@@ -75,6 +75,11 @@ const T = {
     copyright:'© 2026 Kuzma Bogdanov',
     manual:'Руководство',
     grid_style:'Сетка канваса', grid_dots:'Точки', grid_lines:'Линии', grid_cross:'Кресты', grid_chess:'Шахматы', grid_none:'Нет',
+    zoom_speed:'Скорость зума', zoom_speed_sub:'шаг при прокрутке колёсика (1–30%)',
+    update_available:'Доступно обновление', update_changelog:'Что нового', update_btn:'Обновить',
+    update_downloading:'Загрузка…', update_restart:'Перезапустить',
+    update_confirm:'Обновить VidBoards?', update_confirm_sub:'Приложение закроется и перезапустится для установки обновления.',
+    update_yes:'Обновить', update_no:'Позже',
   },
   en: {
     home:'Home', new_project:'New Project', open_file:'Open File...',
@@ -148,6 +153,11 @@ const T = {
     copyright:'© 2026 Kuzma Bogdanov',
     manual:'Manual',
     grid_style:'Canvas Grid', grid_dots:'Dots', grid_lines:'Lines', grid_cross:'Crosses', grid_chess:'Chess', grid_none:'None',
+    zoom_speed:'Zoom Speed', zoom_speed_sub:'scroll wheel step (1–30%)',
+    update_available:'Update Available', update_changelog:'What\'s New', update_btn:'Update',
+    update_downloading:'Downloading…', update_restart:'Restart',
+    update_confirm:'Update VidBoards?', update_confirm_sub:'The app will close and restart to install the update.',
+    update_yes:'Update', update_no:'Later',
   }
 };
 
@@ -171,6 +181,8 @@ let boardProjects=[], activeBoardIndex=-1, boardProject=null;
 let zoom=1, panX=0, panY=0, snapOn=true;
 let isPlaying=false, isPaused=false, loopEnabled=false, optimizePlay=true, seqMode=false, seqImageDuration=3;
 let gridStyle='dots';
+let zoomStep=0.08;
+let lastMouseWX=0, lastMouseWY=0;
 let seqImgTimer=null;
 let timelineActive=false, timelineDuration=0, timelineRAF=null;
 let minimapActive=false;
@@ -188,6 +200,7 @@ let multiDragOX=0,multiDragOY=0;
 const multiDragC=new Map(),multiDragL=new Map(),multiDragS=new Map();
 let selectedStickyId=null;
 let homeView='recent';
+let updateAvailableVersion=null, updateReady=false, updateDownloading=false;
 
 // ── УТИЛИТЫ ─────────────────────────────────────────────────────────
 const t = k => (T[lang]&&T[lang][k])?T[lang][k]:k;
@@ -378,11 +391,11 @@ function applyTheme(th){
   document.body.classList.toggle('dark',theme==='dark');
   document.body.classList.toggle('light',theme==='light');
   document.querySelectorAll('.theme-opt').forEach(o=>o.classList.toggle('sel',o.dataset.theme===theme));
-  drawGrid();api.saveSettings({theme,lang,thumbMode,seqImageDuration,gridStyle});
+  drawGrid();persist();
 }
 function applyLang(l,auto){
   lang=l;autoLang=!!auto;
-  api.saveSettings({theme,lang,thumbMode,seqImageDuration,gridStyle});
+  persist();
   const active=document.querySelector('.screen.active');
   const screen=active?active.id.replace('screen-',''):'home';
   if(screen==='home'){buildHomeScreen();}
@@ -393,6 +406,8 @@ function applyLang(l,auto){
   if(badge){badge.textContent=t('auto');badge.style.display=autoLang?'':'none';}
   renderTabs();
 }
+
+function persist(){api.saveSettings({theme,lang,thumbMode,seqImageDuration,gridStyle,zoomStep});}
 
 // ── ЭКРАНЫ / ТАБЫ ───────────────────────────────────────────────────
 function showScreen(name){
@@ -541,6 +556,45 @@ document.addEventListener('contextmenu',e=>{if(document.getElementById('screen-b
 // ═══════════════════════════════════════════════════════════════════
 //  ГЛАВНАЯ
 // ═══════════════════════════════════════════════════════════════════
+function renderUpdateBanner(){
+  const bot=document.getElementById('sb-bottom');if(!bot)return;
+  const old=document.getElementById('update-banner');if(old)old.remove();
+  if(!updateAvailableVersion)return;
+  const banner=document.createElement('div');
+  banner.id='update-banner';
+  banner.style.cssText='margin-bottom:8px;padding:10px;border-radius:8px;background:var(--accent-bg);border:0.5px solid var(--accent-t);display:flex;flex-direction:column;gap:7px';
+  const title=document.createElement('div');
+  title.style.cssText='font-size:11px;font-weight:600;color:var(--accent-t);display:flex;align-items:center;gap:5px';
+  title.innerHTML=`<i class="ti ti-arrow-up-circle"></i> ${t('update_available')} v${updateAvailableVersion}`;
+  const btns=document.createElement('div');
+  btns.style.cssText='display:flex;gap:6px';
+  const btnCL=document.createElement('button');
+  btnCL.style.cssText='flex:1;height:26px;border-radius:6px;border:0.5px solid var(--border3);background:var(--bg4);color:var(--text2);font-size:11px;cursor:pointer';
+  btnCL.textContent=t('update_changelog');
+  btnCL.onclick=()=>api.openUrl(`https://github.com/KuzmaBogdanov/vidboards/releases/tag/v${updateAvailableVersion}`);
+  const btnUp=document.createElement('button');
+  btnUp.id='btn-do-update';
+  btnUp.style.cssText='flex:1;height:26px;border-radius:6px;border:none;background:var(--accent);color:#fff;font-size:11px;font-weight:600;cursor:pointer';
+  if(updateDownloading){btnUp.textContent=t('update_downloading');btnUp.disabled=true;btnUp.style.opacity='0.6';}
+  else if(updateReady){btnUp.textContent=t('update_restart');}
+  else{btnUp.textContent=t('update_btn');}
+  btnUp.onclick=()=>{
+    if(updateReady){
+      openModal(t('update_confirm'),`<p class="m-text">v${updateAvailableVersion}</p><p class="m-sub">${t('update_confirm_sub')}</p>`,t('update_yes'),'ok',()=>api.quitAndInstall());
+      const mc=document.getElementById('m-cancel');if(mc)mc.textContent=t('update_no');
+      return;
+    }
+    openModal(t('update_confirm'),`<p class="m-text">v${updateAvailableVersion}</p><p class="m-sub">${t('update_confirm_sub')}</p>`,t('update_yes'),'ok',async()=>{
+      updateDownloading=true;renderUpdateBanner();
+      api.downloadUpdate().catch(()=>{updateDownloading=false;renderUpdateBanner();});
+    });
+    const mc=document.getElementById('m-cancel');if(mc)mc.textContent=t('update_no');
+  };
+  btns.appendChild(btnCL);btns.appendChild(btnUp);
+  banner.appendChild(title);banner.appendChild(btns);
+  bot.insertBefore(banner,bot.firstChild);
+}
+
 function buildHomeScreen(){
   const screen=document.getElementById('screen-home');
   screen.innerHTML=`
@@ -556,7 +610,7 @@ function buildHomeScreen(){
           <button class="nav-btn${homeView==='all'?' active':''}" data-view="all"><i class="ti ti-layout-board"></i> ${t('all_projects')}</button>
           <button class="nav-btn${homeView==='trash'?' active':''}" data-view="trash"><i class="ti ti-trash"></i> ${t('trash')}</button>
         </div>
-        <div class="sb-bottom"><div class="sb-ver">VidBoards v1.0.0 · Electron</div></div>
+        <div class="sb-bottom" id="sb-bottom"><div class="sb-ver">VidBoards v1.1.0 · Electron</div></div>
       </div>
       <div class="home-main">
         <div class="home-topbar">
@@ -568,6 +622,7 @@ function buildHomeScreen(){
     </div>`;
   document.getElementById('sb-new').onclick=openNewProjectModal;
   document.getElementById('sb-open').onclick=openExistingProject;
+  renderUpdateBanner();
   document.querySelectorAll('.nav-btn[data-view]').forEach(btn=>{btn.onclick=()=>{homeView=btn.dataset.view;buildHomeScreen();};});
   document.getElementById('search-input').oninput=e=>renderHomeContent(e.target.value);
   renderHomeView();
@@ -917,7 +972,7 @@ function initBoardEvents(){
   mmCv.addEventListener('mousedown',e=>{mmDragging=true;mmSnapState=minimapState();mmNavigate(e,mmSnapState);});
   window.addEventListener('mousemove',e=>{if(mmDragging&&mmSnapState)mmNavigate(e,mmSnapState);});
   window.addEventListener('mouseup',()=>{mmDragging=false;mmSnapState=null;});
-  mmCv.addEventListener('wheel',e=>{e.preventDefault();e.stopPropagation();const bd=document.getElementById('board-canvas');changeZoom(e.deltaY>0?-0.08:0.08,bd?bd.offsetWidth/2:undefined,bd?bd.offsetHeight/2:undefined);},{passive:false});
+  mmCv.addEventListener('wheel',e=>{e.preventDefault();e.stopPropagation();const bd=document.getElementById('board-canvas');changeZoom(e.deltaY>0?-zoomStep:zoomStep,bd?bd.offsetWidth/2:undefined,bd?bd.offsetHeight/2:undefined);},{passive:false});
   document.getElementById('btn-tl-close').onclick=toggleTimeline;
   const tlScrubber=document.getElementById('tl-scrubber');
   const tlTime=document.getElementById('tl-time');
@@ -944,6 +999,8 @@ function initBoardEvents(){
   const zoomFromCenter=delta=>{const cvs=document.getElementById('board-canvas');changeZoom(delta,cvs?cvs.offsetWidth/2:0,cvs?cvs.offsetHeight/2:0);};
   document.getElementById('btn-zoom-in').onclick=()=>zoomFromCenter(0.1);
   document.getElementById('btn-zoom-out').onclick=()=>zoomFromCenter(-0.1);
+  const zoomLbl=document.getElementById('zoom-lbl');
+  if(zoomLbl){zoomLbl.style.cursor='pointer';zoomLbl.title='100%';zoomLbl.onclick=()=>{const cvs=document.getElementById('board-canvas');changeZoom(1-zoom,cvs?cvs.offsetWidth/2:0,cvs?cvs.offsetHeight/2:0);};};
 
   document.addEventListener('keydown',onBoardKey);
 
@@ -1037,6 +1094,8 @@ function initBoardEvents(){
   });
   canvas.addEventListener('auxclick',e=>{if(e.button===1)e.preventDefault();});
   window.addEventListener('mousemove',e=>{
+    const _cvs=document.getElementById('board-canvas');
+    if(_cvs){const _r=_cvs.getBoundingClientRect();const _w=toWorld(e.clientX-_r.left,e.clientY-_r.top);lastMouseWX=_w.wx;lastMouseWY=_w.wy;}
     if(selBoxing){
       const rect=canvas.getBoundingClientRect();
       const cx=e.clientX-rect.left,cy=e.clientY-rect.top;
@@ -1063,7 +1122,7 @@ function initBoardEvents(){
   canvas.addEventListener('wheel',e=>{
     e.preventDefault();
     const rect=canvas.getBoundingClientRect();
-    changeZoom(e.deltaY>0?-0.08:0.08,e.clientX-rect.left,e.clientY-rect.top);
+    changeZoom(e.deltaY>0?-zoomStep:zoomStep,e.clientX-rect.left,e.clientY-rect.top);
   },{passive:false});
   window.addEventListener('resize',drawGrid);
   const CURSOR_ADD="url(\"data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='24' height='24'%3E%3Ccircle cx='12' cy='12' r='10' fill='%2322c55e' fill-opacity='.2' stroke='%2316a34a' stroke-width='1.5'/%3E%3Cpath d='M12 8v8M8 12h8' stroke='%2316a34a' stroke-width='2' stroke-linecap='round'/%3E%3C/svg%3E\") 12 12, crosshair";
@@ -1071,6 +1130,46 @@ function initBoardEvents(){
   function updateSelCursor(e){const cvs=document.getElementById('board-canvas');if(!cvs)return;if(!e.ctrlKey){cvs.style.cursor='';return;}if(e.shiftKey){cvs.style.cursor=CURSOR_ADD;return;}if(e.altKey){cvs.style.cursor=CURSOR_SUB;return;}cvs.style.cursor='default';}
   document.addEventListener('keydown',e=>{if(['Control','Shift','Alt'].includes(e.key))updateSelCursor(e);});
   document.addEventListener('keyup',e=>{if(['Control','Shift','Alt'].includes(e.key))updateSelCursor(e);});
+
+  // Ctrl+V — вставка файлов/изображений/текста из буфера на холст
+  const PASTE_ALLOWED=/\.(mp4|mov|webm|avi|mkv|png|jpg|jpeg|gif|webp|avif|svg|bmp)$/i;
+  const pasteAddFiles=async filePaths=>{
+    snapshot();const addedObjs=[];
+    for(let i=0;i<filePaths.length;i++){
+      await addFileToBoard(filePaths[i],lastMouseWX+i*256,lastMouseWY);
+      const allF=getBoardFiles();addedObjs.push(allF[allF.length-1]);
+    }
+    addedObjs.forEach(f=>makeCard(f));
+    applySearch();drawMinimap();updateStatus();saveBoardProject();
+    clearMultiSel();
+    if(addedObjs.length===1){selectedCardId=addedObjs[0].id;const el=document.getElementById('card-'+addedObjs[0].id);if(el)el.classList.add('selected');}
+    else if(addedObjs.length>1){addedObjs.forEach(f=>{multiSelCards.add(f.id);const el=document.getElementById('card-'+f.id);if(el)el.classList.add('selected');});refreshMultiSelBorders();}
+    showHint(`${t('hint_added')} ${filePaths.length} ${t('files_lbl')}`);
+  };
+  window.addEventListener('paste',async e=>{
+    if(!boardProject)return;
+    const active=document.activeElement;
+    if(active&&(active.tagName==='INPUT'||active.tagName==='TEXTAREA'))return;
+
+    // 1. Файлы из Проводника
+    if(e.clipboardData.files.length>0){
+      const fps=[...e.clipboardData.files].map(f=>api.getPathForFile(f)).filter(p=>p&&PASTE_ALLOWED.test(p));
+      if(fps.length){e.preventDefault();await pasteAddFiles(fps);return;}
+    }
+
+    // 2. Текст → лейбл
+    const txt=e.clipboardData.getData('text/plain');
+    if(txt&&txt.trim()){
+      e.preventDefault();
+      addLabel(lastMouseWX,lastMouseWY,txt.trim());
+      saveBoardProject();return;
+    }
+
+    // 3. Изображение из буфера (скриншот)
+    e.preventDefault();
+    const p=await api.pasteClipboardImage();
+    if(p)await pasteAddFiles([p]);
+  });
 }
 
 let lastSpaceTime=0;
@@ -1574,7 +1673,7 @@ function toggleSnap(){
 }
 function changeZoom(delta,mx,my){
   const oldZoom=zoom;
-  zoom=Math.max(0.3,Math.min(2.5,zoom+delta));
+  zoom=Math.max(0.05,Math.min(8.0,zoom+delta));
   // Зумируем в точку под курсором: сохраняем мировую точку и корректируем pan
   if(mx!==undefined&&my!==undefined){
     const wx=(mx-panX)/oldZoom;
@@ -1583,11 +1682,13 @@ function changeZoom(delta,mx,my){
     panY=my-wy*zoom;
   }
   const lbl=document.getElementById('zoom-lbl');if(lbl)lbl.textContent=Math.round(zoom*100)+'%';
+  const br=Math.min(8,Math.max(1,zoom*8))+'px';
   getBoardFiles().forEach(f=>{
     const card=document.getElementById('card-'+f.id);if(!card)return;
     const sc=toScreen(f.x,f.y);card.style.left=sc.sx+'px';card.style.top=sc.sy+'px';
-    card.style.width=f.w*zoom+'px';
-    const th=card.querySelector('.card-thumb');if(th)th.style.height=(f.h-32)*zoom+'px';
+    card.style.width=Math.round(f.w*zoom)+'px';
+    const th=card.querySelector('.card-thumb');if(th)th.style.height=Math.round((f.h-32)*zoom)+'px';
+    const inn=card.querySelector('.card-inner');if(inn)inn.style.borderRadius=br;
   });
   getLabels().forEach(l=>{
     const el=document.getElementById('label-'+l.id);if(!el)return;
@@ -1610,41 +1711,43 @@ function drawGrid(){
   cv.width=wrap.offsetWidth;cv.height=wrap.offsetHeight;
   const ctx=cv.getContext('2d');ctx.clearRect(0,0,cv.width,cv.height);
   if(gridStyle==='none')return;
-  const step=GRID*zoom;
-  const ox=((panX%step)+step)%step,oy=((panY%step)+step)%step;
+  // Адаптивный шаг: удваиваем пока экранный шаг < 12px → равномерная нагрузка при любом зуме
+  let effGrid=GRID;
+  while(effGrid*zoom<12)effGrid*=2;
+  const step=effGrid*zoom;
+  const ox=Math.round(((panX%step)+step)%step);
+  const oy=Math.round(((panY%step)+step)%step);
   const isLight=theme==='light';
   if(gridStyle==='dots'){
     ctx.fillStyle=isLight?'rgba(0,0,0,0.18)':'rgba(255,255,255,0.13)';
-    for(let x=ox;x<cv.width;x+=step)for(let y=oy;y<cv.height;y+=step){ctx.beginPath();ctx.arc(x,y,1.2,0,Math.PI*2);ctx.fill();}
+    for(let x=ox;x<cv.width;x+=step)for(let y=oy;y<cv.height;y+=step){ctx.beginPath();ctx.arc(Math.round(x),Math.round(y),1.2,0,Math.PI*2);ctx.fill();}
   }else if(gridStyle==='lines'){
     const wc0=Math.round((ox-panX)/step),wr0=Math.round((oy-panY)/step);
     let n=0;
     for(let x=ox;x<cv.width;x+=step,n++){
       const maj=(wc0+n)%5===0;
       ctx.strokeStyle=maj?(isLight?'rgba(0,0,0,0.18)':'rgba(255,255,255,0.14)'):(isLight?'rgba(0,0,0,0.07)':'rgba(255,255,255,0.05)');
-      ctx.lineWidth=maj?1:0.5;ctx.beginPath();ctx.moveTo(x,0);ctx.lineTo(x,cv.height);ctx.stroke();
+      ctx.lineWidth=maj?1:0.5;ctx.beginPath();ctx.moveTo(Math.round(x),0);ctx.lineTo(Math.round(x),cv.height);ctx.stroke();
     }
     n=0;
     for(let y=oy;y<cv.height;y+=step,n++){
       const maj=(wr0+n)%5===0;
       ctx.strokeStyle=maj?(isLight?'rgba(0,0,0,0.18)':'rgba(255,255,255,0.14)'):(isLight?'rgba(0,0,0,0.07)':'rgba(255,255,255,0.05)');
-      ctx.lineWidth=maj?1:0.5;ctx.beginPath();ctx.moveTo(0,y);ctx.lineTo(cv.width,y);ctx.stroke();
+      ctx.lineWidth=maj?1:0.5;ctx.beginPath();ctx.moveTo(0,Math.round(y));ctx.lineTo(cv.width,Math.round(y));ctx.stroke();
     }
   }else if(gridStyle==='cross'){
     ctx.strokeStyle=isLight?'rgba(0,0,0,0.18)':'rgba(255,255,255,0.15)';
-    ctx.lineWidth=1;
-    const arm=3;
+    ctx.lineWidth=1;const arm=3;
     for(let x=ox;x<cv.width;x+=step)for(let y=oy;y<cv.height;y+=step){
-      ctx.beginPath();ctx.moveTo(x-arm,y);ctx.lineTo(x+arm,y);ctx.stroke();
-      ctx.beginPath();ctx.moveTo(x,y-arm);ctx.lineTo(x,y+arm);ctx.stroke();
+      const rx=Math.round(x),ry=Math.round(y);
+      ctx.beginPath();ctx.moveTo(rx-arm,ry);ctx.lineTo(rx+arm,ry);ctx.stroke();
+      ctx.beginPath();ctx.moveTo(rx,ry-arm);ctx.lineTo(rx,ry+arm);ctx.stroke();
     }
   }else if(gridStyle==='chess'){
     ctx.fillStyle=isLight?'rgba(0,0,0,0.04)':'rgba(255,255,255,0.035)';
-    for(let x=ox-step;x<cv.width;x+=step){
-      for(let y=oy-step;y<cv.height;y+=step){
-        const wc=Math.round((x-panX)/step),wr=Math.round((y-panY)/step);
-        if((((wc+wr)%2)+2)%2===0)ctx.fillRect(x,y,step,step);
-      }
+    for(let x=ox-step;x<cv.width;x+=step)for(let y=oy-step;y<cv.height;y+=step){
+      const wc=Math.round((x-panX)/step),wr=Math.round((y-panY)/step);
+      if((((wc+wr)%2)+2)%2===0)ctx.fillRect(Math.round(x),Math.round(y),Math.ceil(step),Math.ceil(step));
     }
   }
 }
@@ -1813,12 +1916,13 @@ function makeCard(f){
   const d=document.createElement('div');
   d.className='card'+(f.disabled?' disabled':'')+(f.missing?' missing':'');
   d.id='card-'+f.id;
-  const sc=toScreen(f.x,f.y);d.style.left=sc.sx+'px';d.style.top=sc.sy+'px';d.style.width=f.w*zoom+'px';
+  const sc=toScreen(f.x,f.y);d.style.left=sc.sx+'px';d.style.top=sc.sy+'px';d.style.width=Math.round(f.w*zoom)+'px';
 
   const inner=document.createElement('div');inner.className='card-inner';
+  inner.style.borderRadius=Math.min(8,Math.max(1,zoom*8))+'px';
   const thumb=document.createElement('div');
   thumb.className='card-thumb '+(f.type==='v'?'vid':'img')+(f.missing?' missing-bg':'');
-  thumb.style.height=(f.h-32)*zoom+'px';
+  thumb.style.height=Math.round((f.h-32)*zoom)+'px';
   // Блокируем браузерный drag у превью
   thumb.style.webkitUserDrag='none';
 
@@ -1838,7 +1942,7 @@ function makeCard(f){
       video.addEventListener('dragstart',e=>e.preventDefault());
       video.src=fileToUrl(f.orig);video.muted=true;video.preload='metadata';video.loop=loopEnabled;
       video.onloadedmetadata=()=>{
-        if(video.videoWidth>0){const ratio=video.videoHeight/video.videoWidth;const newH=Math.round(f.w*ratio)+32;if(Math.abs(newH-f.h)>10){f.h=newH;thumb.style.height=(f.h-32)*zoom+'px';}}
+        if(video.videoWidth>0){const ratio=video.videoHeight/video.videoWidth;const newH=Math.round(f.w*ratio)+32;if(Math.abs(newH-f.h)>10){f.h=newH;thumb.style.height=Math.round((f.h-32)*zoom)+'px';}}
         if(!f.duration&&video.duration&&isFinite(video.duration)){f.duration=video.duration;const fb=document.getElementById('ftype-'+f.id);if(fb)fb.textContent=fmtDur(f.duration)+' VID';}
       };
       video.onloadeddata=()=>{video.style.opacity='1';icon.style.display='none';};
@@ -1867,7 +1971,7 @@ function makeCard(f){
       img.style.cssText='position:absolute;inset:0;width:100%;height:100%;object-fit:cover;opacity:0;transition:opacity .3s;pointer-events:none;-webkit-user-drag:none';
       img.src=fileToUrl(f.orig);
       img.onload=()=>{
-        if(img.naturalWidth>0){const ratio=img.naturalHeight/img.naturalWidth;const newH=Math.round(f.w*ratio)+32;if(Math.abs(newH-f.h)>10){f.h=newH;thumb.style.height=(f.h-32)*zoom+'px';}}
+        if(img.naturalWidth>0){const ratio=img.naturalHeight/img.naturalWidth;const newH=Math.round(f.w*ratio)+32;if(Math.abs(newH-f.h)>10){f.h=newH;thumb.style.height=Math.round((f.h-32)*zoom)+'px';}}
         img.style.opacity='1';icon.style.display='none';
       };
       img.onerror=()=>{img.style.display='none';icon.style.display='';};
@@ -1925,8 +2029,8 @@ function makeCard(f){
     if(e.button!==0)return;
     e.stopPropagation();e.preventDefault();
     snapshot();
-    let rsx=e.clientX,rw0=f.w,rh0=f.h;const ratio=rh0/rw0;
-    const mm=ev=>{const dx=(ev.clientX-rsx)/zoom;f.w=Math.max(120,rw0+dx);f.h=Math.max(90,Math.round(f.w*ratio));d.style.width=f.w*zoom+'px';thumb.style.height=(f.h-32)*zoom+'px';};
+    let rsx=e.clientX,rw0=f.w,rh0=f.h;const vRatio=(rh0-32)/rw0;
+    const mm=ev=>{const dx=(ev.clientX-rsx)/zoom;f.w=Math.max(120,rw0+dx);f.h=Math.max(90,Math.round(f.w*vRatio)+32);d.style.width=Math.round(f.w*zoom)+'px';thumb.style.height=Math.round((f.h-32)*zoom)+'px';};
     const mu=()=>{window.removeEventListener('mousemove',mm);window.removeEventListener('mouseup',mu);};
     window.addEventListener('mousemove',mm);window.addEventListener('mouseup',mu);
   });
@@ -2434,13 +2538,13 @@ async function checkMissingFiles(){
 // ═══════════════════════════════════════════════════════════════════
 function getLabels(){if(!boardProject.labels)boardProject.labels=[];return boardProject.labels;}
 
-function addLabel(worldX,worldY){
+function addLabel(worldX,worldY,initialText){
   snapshot();
   const wrap=document.getElementById('board-canvas');if(!wrap)return;
   let wx=worldX,wy=worldY;
   if(wx===null||wx===undefined){const w=toWorld(wrap.offsetWidth/2,wrap.offsetHeight/2);wx=w.wx;wy=w.wy;}
   const id=Date.now()+Math.random();
-  const label={id,text:'Label',x:wx,y:wy,fontSize:24,bold:false,italic:false,underline:false,strikethrough:false,color:'white',font:'montserrat'};
+  const label={id,text:initialText||'Label',x:wx,y:wy,fontSize:24,bold:false,italic:false,underline:false,strikethrough:false,color:'white',font:'montserrat'};
   getLabels().push(label);makeLabelEl(label);updateStatus();
 }
 
@@ -2946,24 +3050,6 @@ function buildSettingsScreen(){
             </div>
           </div>
         </div>
-        <div class="s-sec"><div class="s-sec-title">${t('thumb_mode')}</div>
-          ${[['viewport','ti-eye','thumb_viewport','thumb_viewport_sub'],['center','ti-focus-centered','thumb_center','thumb_center_sub'],['board','ti-layout-board','thumb_board','thumb_board_sub']].map(([val,icon,lbl,sub])=>`
-          <div class="s-row thumb-mode-opt${thumbMode===val?' sel':''}" data-mode="${val}" style="cursor:pointer;border-radius:8px;padding:8px 10px;border:0.5px solid ${thumbMode===val?'var(--accent-t)':'var(--border2)'};margin-bottom:5px;background:${thumbMode===val?'var(--accent-bg)':'transparent'}">
-            <div style="display:flex;align-items:center;gap:8px;flex:1"><i class="ti ${icon}" style="font-size:16px;color:${thumbMode===val?'var(--accent-t)':'var(--text3)'}"></i><div><div class="s-lbl" style="color:${thumbMode===val?'var(--accent-t)':'var(--text1)'}">${t(lbl)}</div><div class="s-sub">${t(sub)}</div></div></div>
-            <div style="width:16px;height:16px;border-radius:50%;border:1.5px solid ${thumbMode===val?'var(--accent-t)':'var(--border3)'};box-sizing:border-box;position:relative;flex-shrink:0">${thumbMode===val?'<div style="position:absolute;top:50%;left:50%;transform:translate(-50%,-50%);width:8px;height:8px;border-radius:50%;background:var(--accent-t)"></div>':''}</div>
-          </div>`).join('')}
-        </div>
-        <div class="s-sec"><div class="s-sec-title">${t('seq_img_dur')}</div>
-          <div class="s-row">
-            <div><div class="s-lbl">${t('seq_img_dur')}</div><div class="s-sub">${t('seq_img_dur_sub')}</div></div>
-            <div style="display:flex;align-items:center;gap:6px">
-              <button id="sid-dec" style="width:28px;height:28px;border-radius:6px;border:0.5px solid var(--border2);background:var(--bg4);color:var(--text1);font-size:16px;line-height:1;padding:0;cursor:pointer;display:flex;align-items:center;justify-content:center">−</button>
-              <input id="sid-input" type="number" min="1" max="60" value="${seqImageDuration}" style="width:48px;height:28px;border-radius:6px;border:0.5px solid var(--border2);background:var(--bg4);color:var(--text1);font-size:13px;font-weight:600;text-align:center;outline:none;">
-              <button id="sid-inc" style="width:28px;height:28px;border-radius:6px;border:0.5px solid var(--border2);background:var(--bg4);color:var(--text1);font-size:16px;line-height:1;padding:0;cursor:pointer;display:flex;align-items:center;justify-content:center">+</button>
-              <span style="font-size:11px;color:var(--text4)">${t('seq_img_dur_sec')}</span>
-            </div>
-          </div>
-        </div>
         <div class="s-sec"><div class="s-sec-title">${t('grid_style')}</div>
           <div style="display:flex;flex-wrap:wrap;gap:8px;margin-top:6px">
             ${['dots','lines','cross','chess','none'].map(key=>`
@@ -2973,6 +3059,35 @@ function buildSettingsScreen(){
               <div class="t-check"><i class="ti ti-check"></i></div>
             </div>`).join('')}
           </div>
+        </div>
+        <div class="s-sec"><div class="s-sec-title">${t('zoom_speed')}</div>
+          <div class="s-row">
+            <div><div class="s-lbl">${t('zoom_speed')}</div><div class="s-sub">${t('zoom_speed_sub')}</div></div>
+            <div style="display:flex;align-items:center;gap:6px">
+              <span style="font-size:11px;color:var(--text4);min-width:12px;text-align:right">%</span>
+              <button id="zs-dec" style="width:28px;height:28px;border-radius:6px;border:0.5px solid var(--border2);background:var(--bg4);color:var(--text1);font-size:16px;line-height:1;padding:0;cursor:pointer;display:flex;align-items:center;justify-content:center">−</button>
+              <input id="zs-input" type="number" min="1" max="30" value="${Math.round(zoomStep*100)}" style="width:48px;height:28px;border-radius:6px;border:0.5px solid var(--border2);background:var(--bg4);color:var(--text1);font-size:13px;font-weight:600;text-align:center;outline:none;">
+              <button id="zs-inc" style="width:28px;height:28px;border-radius:6px;border:0.5px solid var(--border2);background:var(--bg4);color:var(--text1);font-size:16px;line-height:1;padding:0;cursor:pointer;display:flex;align-items:center;justify-content:center">+</button>
+            </div>
+          </div>
+        </div>
+        <div class="s-sec"><div class="s-sec-title">${t('seq_img_dur')}</div>
+          <div class="s-row">
+            <div><div class="s-lbl">${t('seq_img_dur')}</div><div class="s-sub">${t('seq_img_dur_sub')}</div></div>
+            <div style="display:flex;align-items:center;gap:6px">
+              <span style="font-size:11px;color:var(--text4);min-width:20px;text-align:right">${t('seq_img_dur_sec')}</span>
+              <button id="sid-dec" style="width:28px;height:28px;border-radius:6px;border:0.5px solid var(--border2);background:var(--bg4);color:var(--text1);font-size:16px;line-height:1;padding:0;cursor:pointer;display:flex;align-items:center;justify-content:center">−</button>
+              <input id="sid-input" type="number" min="1" max="60" value="${seqImageDuration}" style="width:48px;height:28px;border-radius:6px;border:0.5px solid var(--border2);background:var(--bg4);color:var(--text1);font-size:13px;font-weight:600;text-align:center;outline:none;">
+              <button id="sid-inc" style="width:28px;height:28px;border-radius:6px;border:0.5px solid var(--border2);background:var(--bg4);color:var(--text1);font-size:16px;line-height:1;padding:0;cursor:pointer;display:flex;align-items:center;justify-content:center">+</button>
+            </div>
+          </div>
+        </div>
+        <div class="s-sec"><div class="s-sec-title">${t('thumb_mode')}</div>
+          ${[['viewport','ti-eye','thumb_viewport','thumb_viewport_sub'],['center','ti-focus-centered','thumb_center','thumb_center_sub'],['board','ti-layout-board','thumb_board','thumb_board_sub']].map(([val,icon,lbl,sub])=>`
+          <div class="s-row thumb-mode-opt${thumbMode===val?' sel':''}" data-mode="${val}" style="cursor:pointer;border-radius:8px;padding:8px 10px;border:0.5px solid ${thumbMode===val?'var(--accent-t)':'var(--border2)'};margin-bottom:5px;background:${thumbMode===val?'var(--accent-bg)':'transparent'}">
+            <div style="display:flex;align-items:center;gap:8px;flex:1"><i class="ti ${icon}" style="font-size:16px;color:${thumbMode===val?'var(--accent-t)':'var(--text3)'}"></i><div><div class="s-lbl" style="color:${thumbMode===val?'var(--accent-t)':'var(--text1)'}">${t(lbl)}</div><div class="s-sub">${t(sub)}</div></div></div>
+            <div style="width:16px;height:16px;border-radius:50%;border:1.5px solid ${thumbMode===val?'var(--accent-t)':'var(--border3)'};box-sizing:border-box;position:relative;flex-shrink:0">${thumbMode===val?'<div style="position:absolute;top:50%;left:50%;transform:translate(-50%,-50%);width:8px;height:8px;border-radius:50%;background:var(--accent-t)"></div>':''}</div>
+          </div>`).join('')}
         </div></div>
       </div>
       <div class="s-page" id="s-language">
@@ -2990,9 +3105,14 @@ function buildSettingsScreen(){
           <div class="s-sec"><div class="about-card">
             <div class="about-app-row"><div class="about-icon"><i class="ti ti-layout-board"></i></div><div><div class="about-name">VidBoards</div><div class="about-ver">v1.0.0 · Electron</div></div></div>
             <div class="about-dev">${t('developer')}: <strong>${t('dev_name')}</strong></div>
-            <div class="about-dev" style="margin-top:4px;color:var(--text3);font-size:10px">${t('app_desc')}</div>
+            <div style="margin-top:5px;display:flex;flex-direction:column;gap:3px">
+              <span class="about-link" id="link-dev-site" style="font-size:10px"><i class="ti ti-world"></i> kuzmabogdanov.ru</span>
+              <span class="about-link" id="link-dev-tg" style="font-size:10px"><i class="ti ti-brand-telegram"></i> t.me/ShangTsungVibes</span>
+            </div>
+            <div class="about-dev" style="margin-top:6px;color:var(--text3);font-size:10px">${t('app_desc')}</div>
             <div class="about-links">
               <span class="about-link" id="link-site"><i class="ti ti-world"></i> vidboards.app</span>
+              <span class="about-link" id="link-github"><i class="ti ti-brand-github"></i> GitHub</span>
               <span class="about-link" id="link-support"><i class="ti ti-message-circle"></i> ${t('support')}</span>
             </div>
           </div></div>
@@ -3008,21 +3128,29 @@ function buildSettingsScreen(){
     </div>`;
   document.querySelectorAll('.sn-item[data-page]').forEach(item=>{item.onclick=()=>{document.querySelectorAll('.sn-item').forEach(i=>i.classList.remove('active'));item.classList.add('active');document.querySelectorAll('.s-page').forEach(p=>p.classList.remove('active'));document.getElementById('s-'+item.dataset.page).classList.add('active');};});
   document.querySelectorAll('.theme-opt').forEach(opt=>{opt.onclick=()=>applyTheme(opt.dataset.theme);});
-  document.querySelectorAll('.lang-opt').forEach(opt=>{opt.onclick=()=>{applyLang(opt.dataset.lang,false);api.saveSettings({theme,lang,thumbMode,seqImageDuration,gridStyle});};});
-  document.querySelectorAll('.thumb-mode-opt').forEach(opt=>{opt.onclick=()=>{thumbMode=opt.dataset.mode;api.saveSettings({theme,lang,thumbMode,seqImageDuration,gridStyle});buildSettingsScreen();};});
+  document.querySelectorAll('.lang-opt').forEach(opt=>{opt.onclick=()=>{applyLang(opt.dataset.lang,false);persist();};});
+  document.querySelectorAll('.thumb-mode-opt').forEach(opt=>{opt.onclick=()=>{thumbMode=opt.dataset.mode;persist();buildSettingsScreen();};});
   const sidInput=document.getElementById('sid-input');
   const sidSave=()=>{
     let v=parseInt(sidInput.value)||3;
     v=Math.max(1,Math.min(60,v));
     seqImageDuration=v;sidInput.value=v;
-    api.saveSettings({theme,lang,thumbMode,seqImageDuration,gridStyle});
+    persist();
   };
   document.getElementById('sid-dec').onclick=()=>{sidInput.value=Math.max(1,(parseInt(sidInput.value)||1)-1);sidSave();};
   document.getElementById('sid-inc').onclick=()=>{sidInput.value=Math.min(60,(parseInt(sidInput.value)||1)+1);sidSave();};
   sidInput.oninput=sidSave;
-  document.querySelectorAll('.grid-opt').forEach(opt=>{opt.onclick=()=>{gridStyle=opt.dataset.grid;api.saveSettings({theme,lang,thumbMode,seqImageDuration,gridStyle});drawGrid();buildSettingsScreen();};});
+  document.querySelectorAll('.grid-opt').forEach(opt=>{opt.onclick=()=>{gridStyle=opt.dataset.grid;persist();drawGrid();buildSettingsScreen();};});
+  const zsInput=document.getElementById('zs-input');
+  const zsSave=()=>{let v=parseInt(zsInput.value)||8;v=Math.max(1,Math.min(30,v));zoomStep=v/100;zsInput.value=v;persist();};
+  document.getElementById('zs-dec').onclick=()=>{zsInput.value=Math.max(1,(parseInt(zsInput.value)||1)-1);zsSave();};
+  document.getElementById('zs-inc').onclick=()=>{zsInput.value=Math.min(30,(parseInt(zsInput.value)||1)+1);zsSave();};
+  zsInput.oninput=zsSave;
   document.getElementById('link-site').onclick=()=>api.openUrl('https://vidboards.app');
-document.getElementById('link-support').onclick=()=>api.openUrl('https://vidboards.app/#support');
+  document.getElementById('link-github').onclick=()=>api.openUrl('https://github.com/KuzmaBogdanov/vidBoards');
+  document.getElementById('link-dev-site').onclick=()=>api.openUrl('https://kuzmabogdanov.ru');
+  document.getElementById('link-dev-tg').onclick=()=>api.openUrl('https://t.me/ShangTsungVibes');
+  document.getElementById('link-support').onclick=()=>api.openUrl('https://vidboards.app/#support');
   document.getElementById('btn-donate').onclick=()=>api.openUrl('https://vidboards.app/#donation');
   document.getElementById('link-terms').onclick=()=>api.openUrl('https://vidboards.app/#terms');
   document.getElementById('link-privacy').onclick=()=>api.openUrl('https://vidboards.app/#privacy');
@@ -3037,6 +3165,7 @@ async function init(){
   if(settings.thumbMode)thumbMode=settings.thumbMode;
   if(settings.seqImageDuration)seqImageDuration=settings.seqImageDuration;
   if(settings.gridStyle)gridStyle=settings.gridStyle;
+  if(settings.zoomStep)zoomStep=settings.zoomStep;
   const locale=await api.getLocale();
   const sys=(locale||'en').toLowerCase().split('-')[0];
   const slavic=['ru','be','uk'];
@@ -3058,6 +3187,8 @@ async function init(){
   document.getElementById('titlebar-tabs').addEventListener('wheel',e=>{e.preventDefault();document.getElementById('titlebar-tabs').scrollLeft+=e.deltaY;},{passive:false});
   renderTabs();
   setInterval(checkMissingFiles,30000);
+  api.on('update-available',(version)=>{updateAvailableVersion=version;renderUpdateBanner();});
+  api.on('update-downloaded',()=>{updateReady=true;updateDownloading=false;renderUpdateBanner();});
   api.on('app-close-requested',()=>{
     const dirty=boardProjects.filter(p=>p._dirty);
     if(!dirty.length){api.forceClose();return;}

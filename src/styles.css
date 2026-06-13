@@ -1,6 +1,8 @@
 *,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
 button{all:unset;box-sizing:border-box;cursor:pointer}
 input,textarea{font-family:inherit}
+input[type=number]::-webkit-inner-spin-button,input[type=number]::-webkit-outer-spin-button{-webkit-appearance:none;margin:0}
+input[type=number]{-moz-appearance:textfield}
 
 /* ── THEMES ── */
 .dark{
@@ -163,7 +165,7 @@ canvas.grid-cv{position:absolute;inset:0;pointer-events:none}
 .card.disabled .card-inner{opacity:.3}
 .card.missing{border-color:#5a1a1a!important}
 .card-inner{border-radius:8px;overflow:hidden}
-.card-thumb{display:flex;align-items:center;justify-content:center;position:relative;flex-direction:column;gap:4px}
+.card-thumb{display:flex;align-items:center;justify-content:center;position:relative;flex-direction:column;gap:4px;overflow:hidden}
 .card-thumb.vid{background:#1a2a1a}
 .card-thumb.img{background:#1a1428}
 .light .card-thumb.vid{background:#d8f0e0}

@@ -1,6 +1,6 @@
 {
   "name": "vidboards",
-  "version": "1.0.0",
+  "version": "1.1.0",
   "description": "Free video and image reference board",
   "main": "src/main.js",
   "author": {
@@ -33,7 +33,9 @@
       "target": [
         {
           "target": "nsis",
-          "arch": ["x64"]
+          "arch": [
+            "x64"
+          ]
         }
       ]
     },
@@ -49,26 +51,70 @@
       "darkModeSupport": true,
       "minimumSystemVersion": "11.0",
       "target": [
-        { "target": "dmg",  "arch": ["x64", "arm64"] },
-        { "target": "zip",  "arch": ["x64", "arm64"] }
+        {
+          "target": "dmg",
+          "arch": [
+            "x64",
+            "arm64"
+          ]
+        },
+        {
+          "target": "zip",
+          "arch": [
+            "x64",
+            "arm64"
+          ]
+        }
       ]
     },
     "dmg": {
       "title": "${productName} ${version}",
       "icon": "assets/icon.icns",
-      "window": { "width": 540, "height": 380 }
+      "window": {
+        "width": 540,
+        "height": 380
+      }
     },
     "linux": {
       "icon": "assets/icon.png",
       "category": "Graphics",
       "target": [
-        { "target": "AppImage", "arch": ["x64"] },
-        { "target": "deb",      "arch": ["x64"] },
-        { "target": "rpm",      "arch": ["x64"] }
+        {
+          "target": "AppImage",
+          "arch": [
+            "x64"
+          ]
+        },
+        {
+          "target": "deb",
+          "arch": [
+            "x64"
+          ]
+        },
+        {
+          "target": "rpm",
+          "arch": [
+            "x64"
+          ]
+        }
       ]
     },
     "deb": {
-      "depends": ["libgtk-3-0", "libnotify4", "libnss3", "libxss1", "libxtst6", "xdg-utils", "libatspi2.0-0", "libuuid1"]
+      "depends": [
+        "libgtk-3-0",
+        "libnotify4",
+        "libnss3",
+        "libxss1",
+        "libxtst6",
+        "xdg-utils",
+        "libatspi2.0-0",
+        "libuuid1"
+      ]
+    },
+    "publish": {
+      "provider": "github",
+      "owner": "KuzmaBogdanov",
+      "repo": "vidboards"
     }
   },
   "devDependencies": {
@@ -78,5 +124,8 @@
     "png2icons": "^2.0.1"
   },
   "keywords": [],
-  "type": "commonjs"
+  "type": "commonjs",
+  "dependencies": {
+    "electron-updater": "^6.8.9"
+  }
 }
