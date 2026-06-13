@@ -1,5 +1,5 @@
 // ═══════════════════════════════════════════════════════════════════
-//  VidBoards — renderer.js  v1.1.9
+//  VidBoards — renderer.js  v1.2.0
 // ═══════════════════════════════════════════════════════════════════
 
 const T = {
@@ -630,7 +630,7 @@ function buildHomeScreen(){
           <button class="nav-btn${homeView==='all'?' active':''}" data-view="all"><i class="ti ti-layout-board"></i> ${t('all_projects')}</button>
           <button class="nav-btn${homeView==='trash'?' active':''}" data-view="trash"><i class="ti ti-trash"></i> ${t('trash')}</button>
         </div>
-        <div class="sb-bottom" id="sb-bottom"><div class="sb-ver">VidBoards v1.1.9 · Electron</div></div>
+        <div class="sb-bottom" id="sb-bottom"><div class="sb-ver">VidBoards v1.2.0 · Electron</div></div>
       </div>
       <div class="home-main">
         <div class="home-topbar">
@@ -884,7 +884,7 @@ function buildBoardScreen(){
         <span class="st-lbl">${t('proj_size')}</span>
         <span class="st-val ok" id="st-size">—</span>
       </div>
-      <span class="st-badge">VidBoards v1.1</span>
+      <span class="st-badge">VidBoards v1.2</span>
     </div>`;
 
   initBoardEvents();
@@ -2782,7 +2782,7 @@ function makeLabelEl(label){
     e.stopPropagation();e.preventDefault();
     snapshot();
     let rsx=e.clientX,rfs=label.fontSize;
-    const mm=ev=>{label.fontSize=Math.max(8,Math.min(120,Math.round(rfs+(ev.clientX-rsx)/zoom/3)));applyLabelStyle(d,label);};
+    const mm=ev=>{label.fontSize=Math.max(8,Math.min(160,Math.round(rfs+(ev.clientX-rsx)/zoom/3)));applyLabelStyle(d,label);};
     const mu=()=>{window.removeEventListener('mousemove',mm);window.removeEventListener('mouseup',mu);};
     window.addEventListener('mousemove',mm);window.addEventListener('mouseup',mu);
   });
@@ -2882,7 +2882,7 @@ function openLabelCtx(label,el,span,x,y){
   });
   const sep1=document.createElement('div');sep1.style.cssText='width:0.5px;height:18px;background:var(--border3);margin:0 2px';styleRow.appendChild(sep1);
   const sizeLbl=document.createElement('span');sizeLbl.style.cssText='font-size:10px;color:var(--text2);min-width:28px;text-align:center';sizeLbl.textContent=label.fontSize+'px';
-  const mkSizeBtn=(icon,delta)=>{const b=document.createElement('button');b.style.cssText='all:unset;width:20px;height:24px;border-radius:4px;display:flex;align-items:center;justify-content:center;font-size:14px;cursor:pointer;background:var(--bg5);color:var(--text2)';b.innerHTML=`<i class="ti ti-${icon}"></i>`;b.onclick=e=>{e.stopPropagation();snapshot();label.fontSize=Math.max(8,Math.min(120,label.fontSize+delta));sizeLbl.textContent=label.fontSize+'px';refreshLabelStyle(label);};return b;};
+  const mkSizeBtn=(icon,delta)=>{const b=document.createElement('button');b.style.cssText='all:unset;width:20px;height:24px;border-radius:4px;display:flex;align-items:center;justify-content:center;font-size:14px;cursor:pointer;background:var(--bg5);color:var(--text2)';b.innerHTML=`<i class="ti ti-${icon}"></i>`;b.onclick=e=>{e.stopPropagation();snapshot();label.fontSize=Math.max(8,Math.min(160,label.fontSize+delta));sizeLbl.textContent=label.fontSize+'px';refreshLabelStyle(label);};return b;};
   styleRow.appendChild(mkSizeBtn('minus',-2));styleRow.appendChild(sizeLbl);styleRow.appendChild(mkSizeBtn('plus',2));
   ctxEl.appendChild(styleRow);
 
@@ -3123,7 +3123,7 @@ function buildSettingsScreen(){
         <div class="s-head"><div class="s-head-title">${t('about')}</div></div>
         <div class="s-body">
           <div class="s-sec"><div class="about-card">
-            <div class="about-app-row"><div class="about-icon"><i class="ti ti-layout-board"></i></div><div><div class="about-name">VidBoards</div><div class="about-ver">v1.1.7 · Electron</div></div></div>
+            <div class="about-app-row"><div class="about-icon"><i class="ti ti-layout-board"></i></div><div><div class="about-name">VidBoards</div><div class="about-ver">v1.2.0 · Electron</div><!-- UPDATE VERSION HERE on every release --></div></div></div>
             <div class="about-dev">${t('developer')}: <strong>${t('dev_name')}</strong></div>
             <div style="margin-top:5px;display:flex;flex-direction:column;gap:3px">
               <span class="about-link" id="link-dev-site" style="font-size:10px"><i class="ti ti-world"></i> kuzmabogdanov.ru</span>
@@ -3131,10 +3131,10 @@ function buildSettingsScreen(){
             </div>
             <div class="about-dev" style="margin-top:6px;color:var(--text3);font-size:10px">${t('app_desc')}</div>
             <div class="about-links">
+              <span class="about-link" id="link-site"><i class="ti ti-world"></i> vidboards.app</span>
               <span class="about-link" id="link-github"><i class="ti ti-brand-github"></i> GitHub</span>
-              <span class="about-link" id="link-support"><i class="ti ti-message-circle"></i> ${t('support')}</span>
             </div>
-          </div></div>
+          </div>
           <div class="s-sec"><div class="s-sec-title">${t('support_dev')}</div>
             <div class="donation-card"><div class="donation-top"><span style="font-size:18px">💜</span><span class="donation-title">${t('donation_title')}</span></div>
             <div class="donation-desc">${t('donation_desc')}</div>
@@ -3165,10 +3165,10 @@ function buildSettingsScreen(){
   document.getElementById('zs-dec').onclick=()=>{zsInput.value=Math.max(1,(parseInt(zsInput.value)||1)-1);zsSave();};
   document.getElementById('zs-inc').onclick=()=>{zsInput.value=Math.min(30,(parseInt(zsInput.value)||1)+1);zsSave();};
   zsInput.oninput=zsSave;
+  document.getElementById('link-site').onclick=()=>api.openUrl('https://vidboards.app');
   document.getElementById('link-github').onclick=()=>api.openUrl('https://github.com/KuzmaBogdanov/vidBoards');
   document.getElementById('link-dev-site').onclick=()=>api.openUrl('https://kuzmabogdanov.ru');
   document.getElementById('link-dev-tg').onclick=()=>api.openUrl('https://t.me/ShangTsungVibes');
-  document.getElementById('link-support').onclick=()=>api.openUrl('https://vidboards.app/#support');
   document.getElementById('btn-donate').onclick=()=>api.openUrl('https://vidboards.app/#donation');
   document.getElementById('link-terms').onclick=()=>api.openUrl('https://vidboards.app/#terms');
   document.getElementById('link-privacy').onclick=()=>api.openUrl('https://vidboards.app/#privacy');

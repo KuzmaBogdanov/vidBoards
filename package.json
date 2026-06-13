@@ -1,6 +1,6 @@
 {
   "name": "vidboards",
-  "version": "1.1.9",
+  "version": "1.2.0",
   "description": "Free video and image reference board",
   "main": "src/main.js",
   "author": {
