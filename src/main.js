@@ -70,6 +70,9 @@ function createWindow() {
       autoUpdater.on('update-downloaded', () => {
         mainWindow.webContents.send('update-downloaded');
       });
+      autoUpdater.on('download-progress', info => {
+        mainWindow.webContents.send('update-progress', Math.round(info.percent));
+      });
       autoUpdater.on('error', () => {});
       setTimeout(() => autoUpdater.checkForUpdates().catch(() => {}), 5000);
     }

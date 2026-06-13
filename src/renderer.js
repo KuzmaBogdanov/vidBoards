@@ -200,7 +200,7 @@ let multiDragOX=0,multiDragOY=0;
 const multiDragC=new Map(),multiDragL=new Map(),multiDragS=new Map();
 let selectedStickyId=null;
 let homeView='recent';
-let updateAvailableVersion=null, updateReady=false, updateDownloading=false;
+let updateAvailableVersion=null, updateReady=false, updateDownloading=false, updateProgress=0;
 
 // ── УТИЛИТЫ ─────────────────────────────────────────────────────────
 const t = k => (T[lang]&&T[lang][k])?T[lang][k]:k;
@@ -591,6 +591,21 @@ function renderUpdateBanner(){
   const btns=document.createElement('div');
   btns.style.cssText='display:flex;flex-direction:column;gap:5px';
   btns.appendChild(btnCL);btns.appendChild(btnUp);
+  if(updateDownloading){
+    const track=document.createElement('div');
+    track.id='update-progress-track';
+    track.style.cssText='width:100%;height:3px;border-radius:2px;background:var(--bg4);overflow:hidden;margin-top:2px';
+    const fill=document.createElement('div');
+    fill.id='update-progress-fill';
+    fill.style.cssText=`height:100%;border-radius:2px;background:var(--accent);transition:width 0.3s;width:${updateProgress}%`;
+    track.appendChild(fill);
+    btns.appendChild(track);
+    const pct=document.createElement('div');
+    pct.id='update-progress-pct';
+    pct.style.cssText='font-size:10px;color:var(--text4);text-align:center';
+    pct.textContent=updateProgress+'%';
+    btns.appendChild(pct);
+  }
   banner.appendChild(title);banner.appendChild(btns);
   bot.insertBefore(banner,bot.firstChild);
 }
@@ -3186,7 +3201,15 @@ async function init(){
   renderTabs();
   setInterval(checkMissingFiles,30000);
   api.on('update-available',(version)=>{updateAvailableVersion=version;renderUpdateBanner();});
-  api.on('update-downloaded',()=>{updateReady=true;updateDownloading=false;renderUpdateBanner();});
+  api.on('update-downloaded',()=>{updateReady=true;updateDownloading=false;updateProgress=0;renderUpdateBanner();});
+  api.on('update-progress',(pct)=>{
+    updateProgress=pct;
+    const fill=document.getElementById('update-progress-fill');
+    const label=document.getElementById('update-progress-pct');
+    if(fill){fill.style.width=pct+'%';}
+    else{renderUpdateBanner();}
+    if(label){label.textContent=pct+'%';}
+  });
   api.on('app-close-requested',()=>{
     const dirty=boardProjects.filter(p=>p._dirty);
     if(!dirty.length){api.forceClose();return;}
