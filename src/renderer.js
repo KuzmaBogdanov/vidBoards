@@ -3103,7 +3103,7 @@ function buildSettingsScreen(){
         <div class="s-head"><div class="s-head-title">${t('about')}</div></div>
         <div class="s-body">
           <div class="s-sec"><div class="about-card">
-            <div class="about-app-row"><div class="about-icon"><i class="ti ti-layout-board"></i></div><div><div class="about-name">VidBoards</div><div class="about-ver">v1.0.0 · Electron</div></div></div>
+            <div class="about-app-row"><div class="about-icon"><i class="ti ti-layout-board"></i></div><div><div class="about-name">VidBoards</div><div class="about-ver">v1.1.1 · Electron</div></div></div>
             <div class="about-dev">${t('developer')}: <strong>${t('dev_name')}</strong></div>
             <div style="margin-top:5px;display:flex;flex-direction:column;gap:3px">
               <span class="about-link" id="link-dev-site" style="font-size:10px"><i class="ti ti-world"></i> kuzmabogdanov.ru</span>
@@ -3111,7 +3111,6 @@ function buildSettingsScreen(){
             </div>
             <div class="about-dev" style="margin-top:6px;color:var(--text3);font-size:10px">${t('app_desc')}</div>
             <div class="about-links">
-              <span class="about-link" id="link-site"><i class="ti ti-world"></i> vidboards.app</span>
               <span class="about-link" id="link-github"><i class="ti ti-brand-github"></i> GitHub</span>
               <span class="about-link" id="link-support"><i class="ti ti-message-circle"></i> ${t('support')}</span>
             </div>
@@ -3146,7 +3145,6 @@ function buildSettingsScreen(){
   document.getElementById('zs-dec').onclick=()=>{zsInput.value=Math.max(1,(parseInt(zsInput.value)||1)-1);zsSave();};
   document.getElementById('zs-inc').onclick=()=>{zsInput.value=Math.min(30,(parseInt(zsInput.value)||1)+1);zsSave();};
   zsInput.oninput=zsSave;
-  document.getElementById('link-site').onclick=()=>api.openUrl('https://vidboards.app');
   document.getElementById('link-github').onclick=()=>api.openUrl('https://github.com/KuzmaBogdanov/vidBoards');
   document.getElementById('link-dev-site').onclick=()=>api.openUrl('https://kuzmabogdanov.ru');
   document.getElementById('link-dev-tg').onclick=()=>api.openUrl('https://t.me/ShangTsungVibes');
