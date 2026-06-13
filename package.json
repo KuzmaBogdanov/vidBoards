@@ -1,6 +1,6 @@
 {
   "name": "vidboards",
-  "version": "1.1.6",
+  "version": "1.1.7",
   "description": "Free video and image reference board",
   "main": "src/main.js",
   "author": {
@@ -126,6 +126,7 @@
   "keywords": [],
   "type": "commonjs",
   "dependencies": {
+    "electron-log": "^5.4.4",
     "electron-updater": "^6.8.9"
   }
 }

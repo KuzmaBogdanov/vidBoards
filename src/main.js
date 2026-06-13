@@ -1,8 +1,12 @@
 const { app, BrowserWindow, ipcMain, dialog, shell, Menu, clipboard } = require('electron');
 const { autoUpdater } = require('electron-updater');
+const log = require('electron-log');
 const path = require('path');
 const fs = require('fs');
 const os = require('os');
+
+log.transports.file.level = 'info';
+autoUpdater.logger = log;
 
 let mainWindow;
 let PROJECTS_DIR, TRASH_DIR;
@@ -74,6 +78,7 @@ function createWindow() {
         mainWindow.webContents.send('update-progress', Math.round(info.percent));
       });
       autoUpdater.on('error', (err) => {
+        log.error('autoUpdater error:', err);
         mainWindow.webContents.send('update-error', err ? err.message : 'unknown');
       });
       setTimeout(() => autoUpdater.checkForUpdates().catch(() => {}), 5000);

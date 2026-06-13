@@ -1,5 +1,5 @@
 // ═══════════════════════════════════════════════════════════════════
-//  VidBoards — renderer.js  v1.0
+//  VidBoards — renderer.js  v1.1
 // ═══════════════════════════════════════════════════════════════════
 
 const T = {
@@ -630,7 +630,7 @@ function buildHomeScreen(){
           <button class="nav-btn${homeView==='all'?' active':''}" data-view="all"><i class="ti ti-layout-board"></i> ${t('all_projects')}</button>
           <button class="nav-btn${homeView==='trash'?' active':''}" data-view="trash"><i class="ti ti-trash"></i> ${t('trash')}</button>
         </div>
-        <div class="sb-bottom" id="sb-bottom"><div class="sb-ver">VidBoards v1.1.0 · Electron</div></div>
+        <div class="sb-bottom" id="sb-bottom"><div class="sb-ver">VidBoards v1.1.7 · Electron</div></div>
       </div>
       <div class="home-main">
         <div class="home-topbar">
@@ -884,7 +884,7 @@ function buildBoardScreen(){
         <span class="st-lbl">${t('proj_size')}</span>
         <span class="st-val ok" id="st-size">—</span>
       </div>
-      <span class="st-badge">VidBoards v1.0</span>
+      <span class="st-badge">VidBoards v1.1</span>
     </div>`;
 
   initBoardEvents();
@@ -3123,7 +3123,7 @@ function buildSettingsScreen(){
         <div class="s-head"><div class="s-head-title">${t('about')}</div></div>
         <div class="s-body">
           <div class="s-sec"><div class="about-card">
-            <div class="about-app-row"><div class="about-icon"><i class="ti ti-layout-board"></i></div><div><div class="about-name">VidBoards</div><div class="about-ver">v1.1.6 · Electron</div></div></div>
+            <div class="about-app-row"><div class="about-icon"><i class="ti ti-layout-board"></i></div><div><div class="about-name">VidBoards</div><div class="about-ver">v1.1.7 · Electron</div></div></div>
             <div class="about-dev">${t('developer')}: <strong>${t('dev_name')}</strong></div>
             <div style="margin-top:5px;display:flex;flex-direction:column;gap:3px">
               <span class="about-link" id="link-dev-site" style="font-size:10px"><i class="ti ti-world"></i> kuzmabogdanov.ru</span>
