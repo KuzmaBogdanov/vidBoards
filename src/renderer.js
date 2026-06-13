@@ -566,15 +566,13 @@ function renderUpdateBanner(){
   const title=document.createElement('div');
   title.style.cssText='font-size:11px;font-weight:600;color:var(--accent-t);display:flex;align-items:center;gap:5px';
   title.innerHTML=`<i class="ti ti-arrow-up-circle"></i> ${t('update_available')} v${updateAvailableVersion}`;
-  const btns=document.createElement('div');
-  btns.style.cssText='display:flex;gap:6px';
   const btnCL=document.createElement('button');
-  btnCL.style.cssText='flex:1;height:26px;border-radius:6px;border:0.5px solid var(--border3);background:var(--bg4);color:var(--text2);font-size:11px;cursor:pointer';
+  btnCL.style.cssText='width:100%;height:26px;border-radius:6px;border:0.5px solid var(--border3);background:var(--bg4);color:var(--text2);font-size:11px;cursor:pointer;display:flex;align-items:center;justify-content:center;';
   btnCL.textContent=t('update_changelog');
-  btnCL.onclick=()=>api.openUrl(`https://github.com/KuzmaBogdanov/vidboards/releases/tag/v${updateAvailableVersion}`);
+  btnCL.onclick=()=>api.openUrl(`https://github.com/KuzmaBogdanov/vidBoards/releases/tag/v${updateAvailableVersion}`);
   const btnUp=document.createElement('button');
   btnUp.id='btn-do-update';
-  btnUp.style.cssText='flex:1;height:26px;border-radius:6px;border:none;background:var(--accent);color:#fff;font-size:11px;font-weight:600;cursor:pointer';
+  btnUp.style.cssText='width:100%;height:26px;border-radius:6px;border:none;background:var(--accent);color:#fff;font-size:11px;font-weight:600;cursor:pointer;display:flex;align-items:center;justify-content:center;';
   if(updateDownloading){btnUp.textContent=t('update_downloading');btnUp.disabled=true;btnUp.style.opacity='0.6';}
   else if(updateReady){btnUp.textContent=t('update_restart');}
   else{btnUp.textContent=t('update_btn');}
@@ -590,6 +588,8 @@ function renderUpdateBanner(){
     });
     const mc=document.getElementById('m-cancel');if(mc)mc.textContent=t('update_no');
   };
+  const btns=document.createElement('div');
+  btns.style.cssText='display:flex;flex-direction:column;gap:5px';
   btns.appendChild(btnCL);btns.appendChild(btnUp);
   banner.appendChild(title);banner.appendChild(btns);
   bot.insertBefore(banner,bot.firstChild);
@@ -3103,7 +3103,7 @@ function buildSettingsScreen(){
         <div class="s-head"><div class="s-head-title">${t('about')}</div></div>
         <div class="s-body">
           <div class="s-sec"><div class="about-card">
-            <div class="about-app-row"><div class="about-icon"><i class="ti ti-layout-board"></i></div><div><div class="about-name">VidBoards</div><div class="about-ver">v1.1.1 · Electron</div></div></div>
+            <div class="about-app-row"><div class="about-icon"><i class="ti ti-layout-board"></i></div><div><div class="about-name">VidBoards</div><div class="about-ver">v1.1.2 · Electron</div></div></div>
             <div class="about-dev">${t('developer')}: <strong>${t('dev_name')}</strong></div>
             <div style="margin-top:5px;display:flex;flex-direction:column;gap:3px">
               <span class="about-link" id="link-dev-site" style="font-size:10px"><i class="ti ti-world"></i> kuzmabogdanov.ru</span>
