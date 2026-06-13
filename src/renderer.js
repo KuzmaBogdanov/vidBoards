@@ -3123,7 +3123,7 @@ function buildSettingsScreen(){
         <div class="s-head"><div class="s-head-title">${t('about')}</div></div>
         <div class="s-body">
           <div class="s-sec"><div class="about-card">
-            <div class="about-app-row"><div class="about-icon"><i class="ti ti-layout-board"></i></div><div><div class="about-name">VidBoards</div><div class="about-ver">v1.1.2 · Electron</div></div></div>
+            <div class="about-app-row"><div class="about-icon"><i class="ti ti-layout-board"></i></div><div><div class="about-name">VidBoards</div><div class="about-ver">v1.1.5 · Electron</div></div></div>
             <div class="about-dev">${t('developer')}: <strong>${t('dev_name')}</strong></div>
             <div style="margin-top:5px;display:flex;flex-direction:column;gap:3px">
               <span class="about-link" id="link-dev-site" style="font-size:10px"><i class="ti ti-world"></i> kuzmabogdanov.ru</span>
