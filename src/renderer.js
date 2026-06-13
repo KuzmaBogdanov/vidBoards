@@ -1,5 +1,5 @@
 // ═══════════════════════════════════════════════════════════════════
-//  VidBoards — renderer.js  v1.1
+//  VidBoards — renderer.js  v1.1.8
 // ═══════════════════════════════════════════════════════════════════
 
 const T = {
@@ -630,7 +630,7 @@ function buildHomeScreen(){
           <button class="nav-btn${homeView==='all'?' active':''}" data-view="all"><i class="ti ti-layout-board"></i> ${t('all_projects')}</button>
           <button class="nav-btn${homeView==='trash'?' active':''}" data-view="trash"><i class="ti ti-trash"></i> ${t('trash')}</button>
         </div>
-        <div class="sb-bottom" id="sb-bottom"><div class="sb-ver">VidBoards v1.1.7 · Electron</div></div>
+        <div class="sb-bottom" id="sb-bottom"><div class="sb-ver">VidBoards v1.1.8 · Electron</div></div>
       </div>
       <div class="home-main">
         <div class="home-topbar">
