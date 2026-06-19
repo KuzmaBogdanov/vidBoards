@@ -25,6 +25,7 @@ contextBridge.exposeInMainWorld('api', {
 
   // Проекты
   listProjects:          ()          => ipcRenderer.invoke('list-projects'),
+  getProjectsMeta:       (paths)     => ipcRenderer.invoke('get-projects-meta', paths),
   newProject:            (name)      => ipcRenderer.invoke('new-project', name),
   newProjectInFolder:    (name, dir) => ipcRenderer.invoke('new-project-in-folder', name, dir),
   saveProject:           (fp, data)  => ipcRenderer.invoke('save-project', fp, data),

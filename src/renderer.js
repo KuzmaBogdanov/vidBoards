@@ -1,5 +1,5 @@
 // ═══════════════════════════════════════════════════════════════════
-//  VidBoards — renderer.js  v1.2.0
+//  VidBoards — renderer.js  v1.3.0
 // ═══════════════════════════════════════════════════════════════════
 
 const T = {
@@ -41,7 +41,7 @@ const T = {
     today:'Сегодня', yesterday:'Вчера',
     recent_projects:'Недавние проекты', all_projects_title:'Все проекты',
     trash_title:'Корзина', projects:'Проекты', recent_files:'Недавние файлы',
-    new_proj_placeholder:'Мой проект',
+    new_proj_placeholder:'Мой проект', copy_suffix:' (копия)',
     terms:'Условия', privacy:'Конфиденциальность',
     save_proj:'Сохранить проект', add_label:'Надпись', add_sticky:'Стикер',
     save_short:'Сохр.', map_btn:'Карта', close:'Закрыть',
@@ -80,6 +80,9 @@ const T = {
     update_downloading:'Загрузка…', update_restart:'Перезапустить', update_error:'Ошибка загрузки',
     update_confirm:'Обновить VidBoards?', update_confirm_sub:'Приложение закроется и перезапустится для установки обновления.',
     update_yes:'Обновить', update_no:'Позже',
+    sort_date:'По дате', sort_name:'А–Я',
+    tip_recent:'Недавно открытые проекты из любой папки на этом ПК',
+    tip_all_from:'Проекты из ',
   },
   en: {
     home:'Home', new_project:'New Project', open_file:'Open File...',
@@ -119,7 +122,7 @@ const T = {
     today:'Today', yesterday:'Yesterday',
     recent_projects:'Recent Projects', all_projects_title:'All Projects',
     trash_title:'Trash', projects:'Projects', recent_files:'Recent Files',
-    new_proj_placeholder:'My Project',
+    new_proj_placeholder:'My Project', copy_suffix:' (copy)',
     terms:'Terms', privacy:'Privacy',
     save_proj:'Save project', add_label:'Label', add_sticky:'Sticky',
     save_short:'Save', map_btn:'Map', close:'Close',
@@ -158,6 +161,9 @@ const T = {
     update_downloading:'Downloading…', update_restart:'Restart', update_error:'Download failed',
     update_confirm:'Update VidBoards?', update_confirm_sub:'The app will close and restart to install the update.',
     update_yes:'Update', update_no:'Later',
+    sort_date:'By date', sort_name:'A–Z',
+    tip_recent:'Recently opened projects from any folder on this PC',
+    tip_all_from:'All projects from ',
   }
 };
 
@@ -200,6 +206,10 @@ let multiDragOX=0,multiDragOY=0;
 const multiDragC=new Map(),multiDragL=new Map(),multiDragS=new Map();
 let selectedStickyId=null;
 let homeView='recent';
+let allProjsSort=localStorage.getItem('vb_projs_sort')||'date';
+let defaultProjectsDir=null;
+let _homeRenderSeq=0;
+let _zoomRAF=null;
 let updateAvailableVersion=null, updateReady=false, updateDownloading=false, updateProgress=0, updateErrored=false;
 let _updateProgressTimer=null;
 
@@ -408,7 +418,7 @@ function applyLang(l,auto){
   renderTabs();
 }
 
-function persist(){api.saveSettings({theme,lang,thumbMode,seqImageDuration,gridStyle,zoomStep});}
+function persist(){api.saveSettings({theme,lang,thumbMode,seqImageDuration,gridStyle,zoomStep,snapOn,optimizePlay,loopEnabled});}
 
 // ── ЭКРАНЫ / ТАБЫ ───────────────────────────────────────────────────
 function showScreen(name){
@@ -630,7 +640,7 @@ function buildHomeScreen(){
           <button class="nav-btn${homeView==='all'?' active':''}" data-view="all"><i class="ti ti-layout-board"></i> ${t('all_projects')}</button>
           <button class="nav-btn${homeView==='trash'?' active':''}" data-view="trash"><i class="ti ti-trash"></i> ${t('trash')}</button>
         </div>
-        <div class="sb-bottom" id="sb-bottom"><div class="sb-ver">VidBoards v1.2.0 · Electron</div></div>
+        <div class="sb-bottom" id="sb-bottom"><div class="sb-ver">VidBoards v1.3.0</div></div>
       </div>
       <div class="home-main">
         <div class="home-topbar">
@@ -645,32 +655,76 @@ function buildHomeScreen(){
   renderUpdateBanner();
   document.querySelectorAll('.nav-btn[data-view]').forEach(btn=>{btn.onclick=()=>{homeView=btn.dataset.view;buildHomeScreen();};});
   document.getElementById('search-input').oninput=e=>renderHomeContent(e.target.value);
+  if(defaultProjectsDir===null)api.getDefaultProjectsDir().then(d=>{defaultProjectsDir=d||'';if(homeView==='all')renderHomeContent('');}).catch(()=>{});
   renderHomeView();
+}
+function _makeTipHint(getTextFn){
+  const ic=document.createElement('i');
+  ic.className='ti ti-help-circle';
+  ic.style.cssText='font-size:13px;color:var(--text4);cursor:default;vertical-align:middle;flex-shrink:0';
+  ic.addEventListener('mouseenter',()=>{
+    let tip=document.getElementById('_proj-tip');
+    if(!tip){tip=document.createElement('div');tip.id='_proj-tip';tip.style.cssText='position:fixed;background:var(--bg5,#2a2a2a);color:var(--text1,#fff);font-size:11px;padding:5px 9px;border-radius:5px;white-space:nowrap;z-index:9999;pointer-events:none;border:1px solid var(--bg6,#3a3a3a);box-shadow:0 2px 8px #0006';document.body.appendChild(tip);}
+    tip.textContent=getTextFn();
+    const r=ic.getBoundingClientRect();
+    tip.style.left=r.left+'px';tip.style.top=(r.bottom+6)+'px';tip.style.display='block';
+  });
+  ic.addEventListener('mouseleave',()=>{const tip=document.getElementById('_proj-tip');if(tip)tip.style.display='none';});
+  return ic;
 }
 async function renderHomeView(){
   if(!document.getElementById('home-title'))return;
+  const staleT=document.getElementById('_proj-tip');if(staleT)staleT.style.display='none';
   const titles={recent:t('recent_projects'),all:t('all_projects_title'),trash:t('trash_title')};
-  document.getElementById('home-title').textContent=titles[homeView]||'';
+  const titleEl=document.getElementById('home-title');
+  titleEl.innerHTML='';
+  titleEl.style.cssText='display:inline-flex;align-items:center;gap:7px';
+  const txt=document.createElement('span');txt.textContent=titles[homeView]||'';
+  titleEl.appendChild(txt);
+  if(homeView==='recent'){
+    titleEl.appendChild(_makeTipHint(()=>t('tip_recent')));
+  } else if(homeView==='all'){
+    titleEl.appendChild(_makeTipHint(()=>t('tip_all_from')+(defaultProjectsDir||'...')));
+  }
+  const si=document.getElementById('search-input');
+  if(si){const ph={recent:t('recent'),all:t('all_projects'),trash:t('trash')};si.placeholder=(ph[homeView]||t('recent'))+'...';}
   renderHomeContent('');
 }
 async function renderHomeContent(search){
-  const cont=document.getElementById('home-content');if(!cont)return;cont.innerHTML='';
-  if(homeView==='trash')await renderTrashView(cont,search);
-  else await renderProjectsView(cont,search);
+  const seq=++_homeRenderSeq;
+  const cont=document.getElementById('home-content');if(!cont)return;
+  const frag=document.createDocumentFragment();
+  if(homeView==='trash')await renderTrashView(frag,search,seq);
+  else await renderProjectsView(frag,search,seq);
+  if(seq!==_homeRenderSeq)return;
+  cont.replaceChildren(frag);
 }
-async function renderProjectsView(cont,search){
-  let projects=[];try{projects=await api.listProjects();}catch{}
-  projects.forEach(p=>{const open=boardProjects.find(bp=>bp._path===p.path);if(open&&open.thumbnail)p.thumbnail=open.thumbnail;});
-  if(search)projects=projects.filter(p=>p.name.toLowerCase().includes(search.toLowerCase()));
-  const sec=document.createElement('div');sec.className='proj-section';
-  sec.innerHTML=`<div class="sec-row"><span class="sec-title">${t('projects')}</span></div>`;
-  const grid=document.createElement('div');grid.className='proj-grid';
-  const nc=document.createElement('div');nc.className='proj-card new-card';
-  nc.innerHTML=`<div class="new-card-icon"><i class="ti ti-plus"></i></div><span class="new-card-lbl">${t('new_project')}</span>`;
-  nc.onclick=openNewProjectModal;grid.appendChild(nc);
-  projects.forEach(p=>grid.appendChild(makeProjCard(p)));
-  sec.appendChild(grid);cont.appendChild(sec);
+async function renderProjectsView(cont,search,seq){
   if(homeView==='recent'){
+    // ── RECENT: projects from localStorage vb_recent_projs ──────────
+    const recList=getRecentProjs();
+    let projects=[];
+    if(recList.length){
+      try{
+        const meta=await api.getProjectsMeta(recList.map(r=>r.path));
+        if(seq!==_homeRenderSeq)return;
+        projects=meta.filter(m=>m&&!m.error);
+        const deletedPaths=new Set(recList.filter((_,i)=>meta[i]===null).map(r=>r.path.replace(/\\/g,'/').toLowerCase()));
+        const pruned=recList.filter(r=>!deletedPaths.has(r.path.replace(/\\/g,'/').toLowerCase()));
+        if(pruned.length<recList.length)localStorage.setItem('vb_recent_projs',JSON.stringify(pruned));
+      }catch{}
+    }
+    projects.forEach(p=>{const open=boardProjects.find(bp=>bp._path===p.path);if(open&&open.thumbnail)p.thumbnail=open.thumbnail;});
+    if(search)projects=projects.filter(p=>p.name.toLowerCase().includes(search.toLowerCase()));
+    const sec=document.createElement('div');sec.className='proj-section';
+    sec.innerHTML=`<div class="sec-row"><span class="sec-title">${t('projects')}</span></div>`;
+    const grid=document.createElement('div');grid.className='proj-grid';
+    const nc=document.createElement('div');nc.className='proj-card new-card';
+    nc.innerHTML=`<div class="new-card-icon"><i class="ti ti-plus"></i></div><span class="new-card-lbl">${t('new_project')}</span>`;
+    nc.onclick=openNewProjectModal;grid.appendChild(nc);
+    projects.forEach(p=>grid.appendChild(makeProjCard(p)));
+    sec.appendChild(grid);cont.appendChild(sec);
+    // Recent files section
     const fSec=document.createElement('div');fSec.className='files-section';
     fSec.innerHTML=`<div class="sec-row"><span class="sec-title">${t('recent_files')}</span></div>`;
     getRecentFiles().forEach(f=>{
@@ -693,10 +747,39 @@ async function renderProjectsView(cont,search){
       fSec.appendChild(row);
     });
     cont.appendChild(fSec);
+  } else {
+    // ── ALL PROJECTS: from filesystem (app default folder) ───────────
+    let projects=[];try{projects=await api.listProjects();}catch{}
+    if(seq!==_homeRenderSeq)return;
+    projects.forEach(p=>{const open=boardProjects.find(bp=>bp._path===p.path);if(open&&open.thumbnail)p.thumbnail=open.thumbnail;});
+    if(search)projects=projects.filter(p=>p.name.toLowerCase().includes(search.toLowerCase()));
+    if(allProjsSort==='name')projects.sort((a,b)=>a.name.localeCompare(b.name));
+    else projects.sort((a,b)=>new Date(b.modified)-new Date(a.modified));
+    const sec=document.createElement('div');sec.className='proj-section';
+    const secRow=document.createElement('div');secRow.className='sec-row';
+    const titleEl=document.createElement('span');titleEl.className='sec-title';titleEl.textContent=t('projects');
+    const sortBtn=document.createElement('button');
+    sortBtn.style.cssText='all:unset;box-sizing:border-box;cursor:pointer;font-size:10px;color:var(--text4);display:flex;align-items:center;gap:3px;margin-left:auto;padding:2px 7px;border-radius:4px;border:1px solid var(--bg5);white-space:nowrap';
+    sortBtn.innerHTML=allProjsSort==='name'
+      ?`<i class="ti ti-sort-az" style="font-size:11px"></i> ${t('sort_name')}`
+      :`<i class="ti ti-calendar" style="font-size:11px"></i> ${t('sort_date')}`;
+    sortBtn.title=allProjsSort==='name'?t('sort_name'):t('sort_date');
+    sortBtn.onclick=()=>{allProjsSort=allProjsSort==='name'?'date':'name';localStorage.setItem('vb_projs_sort',allProjsSort);renderHomeContent('');};
+    sortBtn.onmouseenter=()=>{sortBtn.style.background='var(--bg4)';};
+    sortBtn.onmouseleave=()=>{sortBtn.style.background='';};
+    secRow.appendChild(titleEl);secRow.appendChild(sortBtn);
+    sec.appendChild(secRow);
+    const grid=document.createElement('div');grid.className='proj-grid';
+    const nc=document.createElement('div');nc.className='proj-card new-card';
+    nc.innerHTML=`<div class="new-card-icon"><i class="ti ti-plus"></i></div><span class="new-card-lbl">${t('new_project')}</span>`;
+    nc.onclick=openNewProjectModal;grid.appendChild(nc);
+    projects.forEach(p=>grid.appendChild(makeProjCard(p)));
+    sec.appendChild(grid);cont.appendChild(sec);
   }
 }
-async function renderTrashView(cont,search){
+async function renderTrashView(cont,search,seq){
   let items=[];try{items=await api.listTrash();}catch{}
+  if(seq!==_homeRenderSeq)return;
   if(search)items=items.filter(i=>i.name.toLowerCase().includes(search.toLowerCase()));
   const sec=document.createElement('div');sec.className='proj-section';
   sec.innerHTML=`<div class="sec-row"><span class="sec-title">${t('trash_title')}</span></div>`;
@@ -752,13 +835,13 @@ function renameProjModal(p){
   });
 }
 function saveAsProjModal(p){
-  openModal(t('save_as'),`<label class="m-label">${t('proj_name')}</label><input class="m-input" id="inp-saveas" value="${p.name} (копия)" style="margin-bottom:4px"><div id="m-saveas-err" style="display:none;color:var(--danger);font-size:11px;margin-bottom:8px"></div><label class="m-label">${t('save_folder')}</label><div style="display:flex;gap:6px"><input class="m-input" id="inp-saveas-path" style="flex:1" readonly><button id="btn-saveas-browse" style="all:unset;box-sizing:border-box;background:var(--bg5);border:0.5px solid var(--border3);color:var(--text2);border-radius:6px;padding:0 12px;font-size:11px;cursor:pointer;white-space:nowrap">Обзор...</button></div>`,t('save'),'ok',null);
+  openModal(t('save_as'),`<label class="m-label">${t('proj_name')}</label><input class="m-input" id="inp-saveas" value="${p.name}${t('copy_suffix')}" style="margin-bottom:4px"><div id="m-saveas-err" style="display:none;color:var(--danger);font-size:11px;margin-bottom:8px"></div><label class="m-label">${t('save_folder')}</label><div style="display:flex;gap:6px"><input class="m-input" id="inp-saveas-path" style="flex:1" readonly><button id="btn-saveas-browse" style="all:unset;box-sizing:border-box;background:var(--bg5);border:0.5px solid var(--border3);color:var(--text2);border-radius:6px;padding:0 12px;font-size:11px;cursor:pointer;white-space:nowrap">${t('browse')}</button></div>`,t('save'),'ok',null);
   setTimeout(async()=>{
     const def=await api.getDefaultProjectsDir();
     const pi=document.getElementById('inp-saveas-path');if(pi)pi.value=def;
     const bb=document.getElementById('btn-saveas-browse');if(bb)bb.onclick=async()=>{const f=await api.pickFolder();if(f&&pi)pi.value=f;};
     document.getElementById('m-ok').onclick=async()=>{
-      const name=(document.getElementById('inp-saveas').value||'').trim()||p.name+' (копия)';
+      const name=(document.getElementById('inp-saveas').value||'').trim()||p.name+t('copy_suffix');
       const folder=((document.getElementById('inp-saveas-path').value||'').trim()||def).replace(/[\\/]+$/,'');
       const safe=name.replace(/[<>:"/\\|?*]/g,'_');
       const err=document.getElementById('m-saveas-err');
@@ -779,7 +862,7 @@ function deleteProjModal(p){
   });
 }
 async function openNewProjectModal(){
-  openModal(t('new_project'),`<label class="m-label">${t('proj_name')}</label><input class="m-input" id="inp-projname" placeholder="${t('new_proj_placeholder')}" style="margin-bottom:4px"><div id="m-name-err" style="display:none;color:var(--danger);font-size:11px;margin-bottom:8px"></div><label class="m-label">${t('save_folder')}</label><div style="display:flex;gap:6px"><input class="m-input" id="inp-projpath" style="flex:1" readonly><button id="btn-browse" style="all:unset;box-sizing:border-box;background:var(--bg5);border:0.5px solid var(--border3);color:var(--text2);border-radius:6px;padding:0 12px;font-size:11px;cursor:pointer;white-space:nowrap">Обзор...</button></div>`,t('create'),'ok',null);
+  openModal(t('new_project'),`<label class="m-label">${t('proj_name')}</label><input class="m-input" id="inp-projname" placeholder="${t('new_proj_placeholder')}" style="margin-bottom:4px"><div id="m-name-err" style="display:none;color:var(--danger);font-size:11px;margin-bottom:8px"></div><label class="m-label">${t('save_folder')}</label><div style="display:flex;gap:6px"><input class="m-input" id="inp-projpath" style="flex:1" readonly><button id="btn-browse" style="all:unset;box-sizing:border-box;background:var(--bg5);border:0.5px solid var(--border3);color:var(--text2);border-radius:6px;padding:0 12px;font-size:11px;cursor:pointer;white-space:nowrap">${t('browse')}</button></div>`,t('create'),'ok',null);
   setTimeout(async()=>{
     const def=await api.getDefaultProjectsDir();
     const pi=document.getElementById('inp-projpath');if(pi)pi.value=def;
@@ -809,11 +892,21 @@ function addRecentFile(fp,size){
   list.unshift({name:fp.split(/[\\/]/).pop(),path:fp,size,date:new Date().toISOString()});
   localStorage.setItem('vb_recent',JSON.stringify(list.slice(0,20)));
 }
+function getRecentProjs(){try{return JSON.parse(localStorage.getItem('vb_recent_projs')||'[]');}catch{return[];}}
+function addRecentProj(fp){
+  if(!fp)return;
+  const norm=fp.replace(/\\/g,'/').toLowerCase();
+  let list=getRecentProjs().filter(r=>r.path.replace(/\\/g,'/').toLowerCase()!==norm);
+  list.unshift({path:fp,lastOpened:new Date().toISOString()});
+  if(list.length>30)list=list.slice(0,30);
+  localStorage.setItem('vb_recent_projs',JSON.stringify(list));
+}
 
 // ═══════════════════════════════════════════════════════════════════
 //  ДОСКА
 // ═══════════════════════════════════════════════════════════════════
 function buildBoardScreen(){
+  const _stTip=document.getElementById('_proj-tip');if(_stTip)_stTip.style.display='none';
   stopTimelineRAF();timelineActive=false;timelineDuration=0;selectedStickyId=null;minimapActive=false;
   const screen=document.getElementById('screen-board');
   screen.innerHTML=`
@@ -839,7 +932,7 @@ function buildBoardScreen(){
       </div>
       <div class="tb-sep"></div>
       <button class="tb-btn" id="btn-opt" title="${t('opt_title')}"><i class="ti ti-eye"></i> Opt</button>
-      <button class="tb-btn snap" id="btn-snap"><i class="ti ti-grid-dots"></i> Snap</button>
+      <button class="tb-btn${snapOn?' snap':''}" id="btn-snap"><i class="ti ti-grid-dots"></i> Snap</button>
       <div class="tb-spacer"></div>
       <span class="zoom-lbl" id="zoom-lbl">${Math.round(zoom*100)}%</span>
       <button class="tb-btn icon-only" id="btn-zoom-out"><i class="ti ti-minus"></i></button>
@@ -884,7 +977,7 @@ function buildBoardScreen(){
         <span class="st-lbl">${t('proj_size')}</span>
         <span class="st-val ok" id="st-size">—</span>
       </div>
-      <span class="st-badge">VidBoards v1.2</span>
+      <span class="st-badge">VidBoards v1.3</span>
     </div>`;
 
   initBoardEvents();
@@ -895,6 +988,44 @@ function buildBoardScreen(){
   updateTransport();
 }
 
+const CURSOR_ADD="url(\"data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='24' height='24'%3E%3Ccircle cx='12' cy='12' r='10' fill='%2322c55e' fill-opacity='.2' stroke='%2316a34a' stroke-width='1.5'/%3E%3Cpath d='M12 8v8M8 12h8' stroke='%2316a34a' stroke-width='2' stroke-linecap='round'/%3E%3C/svg%3E\") 12 12, crosshair";
+const CURSOR_SUB="url(\"data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='24' height='24'%3E%3Ccircle cx='12' cy='12' r='10' fill='%23ef4444' fill-opacity='.2' stroke='%23dc2626' stroke-width='1.5'/%3E%3Cpath d='M8 12h8' stroke='%23dc2626' stroke-width='2' stroke-linecap='round'/%3E%3C/svg%3E\") 12 12, default";
+const PASTE_ALLOWED=/\.(mp4|mov|webm|avi|mkv|png|jpg|jpeg|gif|webp|avif|svg|bmp)$/i;
+function _onCursorKey(e){
+  if(!['Control','Shift','Alt'].includes(e.key))return;
+  const cvs=document.getElementById('board-canvas');if(!cvs)return;
+  if(!e.ctrlKey){cvs.style.cursor='';return;}
+  if(e.shiftKey){cvs.style.cursor=CURSOR_ADD;return;}
+  if(e.altKey){cvs.style.cursor=CURSOR_SUB;return;}
+  cvs.style.cursor='default';
+}
+async function _onWindowPaste(e){
+  if(!boardProject)return;
+  const active=document.activeElement;
+  if(active&&(active.tagName==='INPUT'||active.tagName==='TEXTAREA'||active.isContentEditable))return;
+  const pasteAddFiles=async filePaths=>{
+    snapshot();const addedObjs=[];
+    for(let i=0;i<filePaths.length;i++){
+      await addFileToBoard(filePaths[i],lastMouseWX+i*256,lastMouseWY);
+      const allF=getBoardFiles();addedObjs.push(allF[allF.length-1]);
+    }
+    addedObjs.forEach(f=>makeCard(f));
+    applySearch();drawMinimap();updateStatus();saveBoardProject();
+    clearMultiSel();
+    if(addedObjs.length===1){selectedCardId=addedObjs[0].id;const el=document.getElementById('card-'+addedObjs[0].id);if(el)el.classList.add('selected');}
+    else if(addedObjs.length>1){addedObjs.forEach(f=>{multiSelCards.add(f.id);const el=document.getElementById('card-'+f.id);if(el)el.classList.add('selected');});refreshMultiSelBorders();}
+    showHint(`${t('hint_added')} ${filePaths.length} ${t('files_lbl')}`);
+  };
+  if(e.clipboardData.files.length>0){
+    const fps=[...e.clipboardData.files].map(f=>api.getPathForFile(f)).filter(p=>p&&PASTE_ALLOWED.test(p));
+    if(fps.length){e.preventDefault();await pasteAddFiles(fps);return;}
+  }
+  const txt=e.clipboardData.getData('text/plain');
+  if(txt&&txt.trim()){e.preventDefault();addLabel(lastMouseWX,lastMouseWY,txt.trim());saveBoardProject();return;}
+  e.preventDefault();
+  const p=await api.pasteClipboardImage();
+  if(p)await pasteAddFiles([p]);
+}
 function initBoardEvents(){
   const canvas=document.getElementById('board-canvas');
 
@@ -992,7 +1123,7 @@ function initBoardEvents(){
   mmCv.addEventListener('mousedown',e=>{mmDragging=true;mmSnapState=minimapState();mmNavigate(e,mmSnapState);});
   window.addEventListener('mousemove',e=>{if(mmDragging&&mmSnapState)mmNavigate(e,mmSnapState);});
   window.addEventListener('mouseup',()=>{mmDragging=false;mmSnapState=null;});
-  mmCv.addEventListener('wheel',e=>{e.preventDefault();e.stopPropagation();const bd=document.getElementById('board-canvas');changeZoom(e.deltaY>0?-zoomStep:zoomStep,bd?bd.offsetWidth/2:undefined,bd?bd.offsetHeight/2:undefined);},{passive:false});
+  mmCv.addEventListener('wheel',e=>{e.preventDefault();e.stopPropagation();const bd=document.getElementById('board-canvas');const step=e.ctrlKey?zoomStep*3:zoomStep;scheduleZoom(e.deltaY>0?-step:step,bd?bd.offsetWidth/2:undefined,bd?bd.offsetHeight/2:undefined);},{passive:false});
   document.getElementById('btn-tl-close').onclick=toggleTimeline;
   const tlScrubber=document.getElementById('tl-scrubber');
   const tlTime=document.getElementById('tl-time');
@@ -1142,54 +1273,13 @@ function initBoardEvents(){
   canvas.addEventListener('wheel',e=>{
     e.preventDefault();
     const rect=canvas.getBoundingClientRect();
-    changeZoom(e.deltaY>0?-zoomStep:zoomStep,e.clientX-rect.left,e.clientY-rect.top);
+    const step=e.ctrlKey?zoomStep*3:zoomStep;
+    scheduleZoom(e.deltaY>0?-step:step,e.clientX-rect.left,e.clientY-rect.top);
   },{passive:false});
   window.addEventListener('resize',drawGrid);
-  const CURSOR_ADD="url(\"data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='24' height='24'%3E%3Ccircle cx='12' cy='12' r='10' fill='%2322c55e' fill-opacity='.2' stroke='%2316a34a' stroke-width='1.5'/%3E%3Cpath d='M12 8v8M8 12h8' stroke='%2316a34a' stroke-width='2' stroke-linecap='round'/%3E%3C/svg%3E\") 12 12, crosshair";
-  const CURSOR_SUB="url(\"data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='24' height='24'%3E%3Ccircle cx='12' cy='12' r='10' fill='%23ef4444' fill-opacity='.2' stroke='%23dc2626' stroke-width='1.5'/%3E%3Cpath d='M8 12h8' stroke='%23dc2626' stroke-width='2' stroke-linecap='round'/%3E%3C/svg%3E\") 12 12, default";
-  function updateSelCursor(e){const cvs=document.getElementById('board-canvas');if(!cvs)return;if(!e.ctrlKey){cvs.style.cursor='';return;}if(e.shiftKey){cvs.style.cursor=CURSOR_ADD;return;}if(e.altKey){cvs.style.cursor=CURSOR_SUB;return;}cvs.style.cursor='default';}
-  document.addEventListener('keydown',e=>{if(['Control','Shift','Alt'].includes(e.key))updateSelCursor(e);});
-  document.addEventListener('keyup',e=>{if(['Control','Shift','Alt'].includes(e.key))updateSelCursor(e);});
-
-  // Ctrl+V — вставка файлов/изображений/текста из буфера на холст
-  const PASTE_ALLOWED=/\.(mp4|mov|webm|avi|mkv|png|jpg|jpeg|gif|webp|avif|svg|bmp)$/i;
-  const pasteAddFiles=async filePaths=>{
-    snapshot();const addedObjs=[];
-    for(let i=0;i<filePaths.length;i++){
-      await addFileToBoard(filePaths[i],lastMouseWX+i*256,lastMouseWY);
-      const allF=getBoardFiles();addedObjs.push(allF[allF.length-1]);
-    }
-    addedObjs.forEach(f=>makeCard(f));
-    applySearch();drawMinimap();updateStatus();saveBoardProject();
-    clearMultiSel();
-    if(addedObjs.length===1){selectedCardId=addedObjs[0].id;const el=document.getElementById('card-'+addedObjs[0].id);if(el)el.classList.add('selected');}
-    else if(addedObjs.length>1){addedObjs.forEach(f=>{multiSelCards.add(f.id);const el=document.getElementById('card-'+f.id);if(el)el.classList.add('selected');});refreshMultiSelBorders();}
-    showHint(`${t('hint_added')} ${filePaths.length} ${t('files_lbl')}`);
-  };
-  window.addEventListener('paste',async e=>{
-    if(!boardProject)return;
-    const active=document.activeElement;
-    if(active&&(active.tagName==='INPUT'||active.tagName==='TEXTAREA'))return;
-
-    // 1. Файлы из Проводника
-    if(e.clipboardData.files.length>0){
-      const fps=[...e.clipboardData.files].map(f=>api.getPathForFile(f)).filter(p=>p&&PASTE_ALLOWED.test(p));
-      if(fps.length){e.preventDefault();await pasteAddFiles(fps);return;}
-    }
-
-    // 2. Текст → лейбл
-    const txt=e.clipboardData.getData('text/plain');
-    if(txt&&txt.trim()){
-      e.preventDefault();
-      addLabel(lastMouseWX,lastMouseWY,txt.trim());
-      saveBoardProject();return;
-    }
-
-    // 3. Изображение из буфера (скриншот)
-    e.preventDefault();
-    const p=await api.pasteClipboardImage();
-    if(p)await pasteAddFiles([p]);
-  });
+  document.addEventListener('keydown',_onCursorKey);
+  document.addEventListener('keyup',_onCursorKey);
+  window.addEventListener('paste',_onWindowPaste);
 }
 
 let lastSpaceTime=0;
@@ -1418,11 +1508,13 @@ function doStop(){
 function toggleLoop(){
   loopEnabled=!loopEnabled;
   document.querySelectorAll('.board-canvas video').forEach(v=>{v.loop=loopEnabled;});
+  persist();
   updateTransport();
   showHint(loopEnabled?t('loop_on'):t('loop_off'));
 }
 function toggleOptimize(){
   optimizePlay=!optimizePlay;
+  persist();
   updateTransport();
   showHint(optimizePlay?t('opt_on'):t('opt_off'));
 }
@@ -1553,9 +1645,9 @@ function openSeqOverlay(){
   const loopBtn=document.createElement('button');loopBtn.className='seq-ctrl-btn';loopBtn.title='Loop';
   loopBtn.innerHTML='<i class="ti ti-repeat"></i>';
   loopBtn.classList.toggle('seq-ctrl-active',loopEnabled);
-  loopBtn.onclick=()=>{loopEnabled=!loopEnabled;loopBtn.classList.toggle('seq-ctrl-active',loopEnabled);updateTransport();};
+  loopBtn.onclick=()=>{loopEnabled=!loopEnabled;loopBtn.classList.toggle('seq-ctrl-active',loopEnabled);persist();updateTransport();};
   const closeBtn=document.createElement('button');closeBtn.id='seq-close-btn';
-  closeBtn.innerHTML=`<i class="ti ti-x"></i> ${lang==='ru'?'Закрыть':'Close'}`;
+  closeBtn.innerHTML=`<i class="ti ti-x"></i> ${t('close')}`;
   closeBtn.onclick=closeSeqOverlay;
   ctrlRow.appendChild(playBtn);ctrlRow.appendChild(stopBtn);ctrlRow.appendChild(loopBtn);ctrlRow.appendChild(closeBtn);
   box.appendChild(title);box.appendChild(navRow);box.appendChild(mediaWrap);box.appendChild(ctrlRow);
@@ -1688,10 +1780,11 @@ function drawMinimap(){
 function toggleSnap(){
   snapOn=!snapOn;
   const btn=document.getElementById('btn-snap');if(btn)btn.className=snapOn?'tb-btn snap':'tb-btn';
+  persist();
   showHint(snapOn?t('hint_snap_on'):t('hint_snap_off'));
   updateStatus();
 }
-function changeZoom(delta,mx,my){
+function _updateZoomState(delta,mx,my){
   const oldZoom=zoom;
   zoom=Math.max(0.05,Math.min(8.0,zoom+delta));
   // Зумируем в точку под курсором: сохраняем мировую точку и корректируем pan
@@ -1701,6 +1794,8 @@ function changeZoom(delta,mx,my){
     panX=mx-wx*zoom;
     panY=my-wy*zoom;
   }
+}
+function _applyZoomDOM(){
   const lbl=document.getElementById('zoom-lbl');if(lbl)lbl.textContent=Math.round(zoom*100)+'%';
   const br=Math.min(8,Math.max(1,zoom*8))+'px';
   getBoardFiles().forEach(f=>{
@@ -1722,6 +1817,14 @@ function changeZoom(delta,mx,my){
     applyStickyStyle(el,s);
   });
   drawGrid();drawMinimap();
+}
+function scheduleZoom(delta,mx,my){
+  _updateZoomState(delta,mx,my);
+  if(!_zoomRAF)_zoomRAF=requestAnimationFrame(()=>{_zoomRAF=null;_applyZoomDOM();});
+}
+function changeZoom(delta,mx,my){
+  _updateZoomState(delta,mx,my);
+  _applyZoomDOM();
 }
 
 // ── GRID ────────────────────────────────────────────────────────────
@@ -1975,9 +2078,9 @@ function makeCard(f){
       const lfBadge=document.createElement('div');lfBadge.id='lf-'+f.id;lfBadge.textContent=t('last_frame');
       lfBadge.style.cssText='display:none;position:absolute;top:6px;right:6px;background:rgba(0,0,0,.45);color:rgba(255,255,255,.5);font-size:8px;padding:2px 5px;border-radius:3px;pointer-events:none;z-index:22;letter-spacing:.3px';
       thumb.appendChild(lfBadge);
-      video.addEventListener('play',()=>{pi.className='ti ti-player-pause';pi.style.marginLeft='0';});
-      video.addEventListener('pause',()=>{pi.className='ti ti-player-play';pi.style.marginLeft='1px';});
-      video.addEventListener('ended',()=>{pi.className='ti ti-player-play';pi.style.marginLeft='1px';});
+      video.addEventListener('play',()=>{pc.style.display='none';});
+      video.addEventListener('pause',()=>{pc.style.display='flex';pi.className='ti ti-player-play';pi.style.marginLeft='1px';});
+      video.addEventListener('ended',()=>{pc.style.display='flex';pi.className='ti ti-player-play';pi.style.marginLeft='1px';});
       ov.addEventListener('click',e=>{
         e.stopPropagation();
         if(e.ctrlKey)return;
@@ -2536,6 +2639,7 @@ function openBoardWithData(data){
     zoom=boardProject.zoom||1;panX=boardProject.canvasX||0;panY=boardProject.canvasY||0;
     showScreen('board');renderTabs();buildBoardScreen();return;
   }
+  try{addRecentProj(data._path);}catch{}
   boardProjects.push(data);activeBoardIndex=boardProjects.length-1;boardProject=boardProjects[activeBoardIndex];
   zoom=data.zoom||1;panX=data.canvasX||0;panY=data.canvasY||0;
   undoStack.length=0;redoStack.length=0;activeFilter=null;selectedCardId=null;selectedLabelId=null;
@@ -2922,7 +3026,7 @@ function buildManualPage(){
       r?'ЛКМ по пустому месту, или зажми среднюю кнопку мыши поверх любого элемента.':'LMB drag on empty canvas, or hold middle mouse button over any element.',
       r?'Средняя кнопка работает даже поверх карточек — не нужно искать пустое место.':'Middle button works even over cards — no need to find empty space first.'),
     itm('ti-zoom-in',r?'Зум':'Zoom',
-      r?'Колёсико мыши — зум в точку под курсором. Кнопки + / − в тулбаре — зум в центр холста.':'Mouse wheel zooms into the cursor. + / − toolbar buttons zoom to canvas center.',
+      r?'Колёсико мыши — зум в точку под курсором. Ctrl + колёсико — зум в 3× быстрее. Кнопки + / − в тулбаре — зум в центр холста.':'Mouse wheel zooms into the cursor. Ctrl + wheel — 3× faster zoom. + / − toolbar buttons zoom to canvas center.',
       r?'Зум всегда зафиксирован на точке под курсором, а не на центре экрана.':'Zoom always anchors to the cursor point, not the screen center.'),
     itm('ti-selection',r?'Прямоугольное выделение':'Box selection',
       r?'Ctrl + тяни по пустому холсту — рамка выделяет все элементы внутри.':'Ctrl + drag on empty canvas — marquee selects all elements inside.',
@@ -3017,6 +3121,7 @@ function buildManualPage(){
       sc([r?'ПКМ':'RMB'],r?'Контекстное меню':'Context menu'),
       sc([r?'Ср. кнопка':'Mid. button'],r?'Перемещение поверх любых элементов':'Pan over any element'),
       sc([r?'Колёсико':'Scroll'],r?'Зум в точку под курсором':'Zoom to cursor point'),
+      sc(['Ctrl',r?'Колёсико':'Scroll'],r?'Зум в 3× быстрее':'Zoom 3× faster'),
     ].join('')+'</div>');
 
   return '<div class="s-head"><div class="s-head-title">'+(r?'Руководство':'Manual')+'</div></div>'+
@@ -3123,7 +3228,7 @@ function buildSettingsScreen(){
         <div class="s-head"><div class="s-head-title">${t('about')}</div></div>
         <div class="s-body">
           <div class="s-sec"><div class="about-card">
-            <div class="about-app-row"><div class="about-icon"><i class="ti ti-layout-board"></i></div><div><div class="about-name">VidBoards</div><div class="about-ver">v1.2.0 · Electron</div><!-- UPDATE VERSION HERE on every release --></div></div></div>
+            <div class="about-app-row"><div class="about-icon"><i class="ti ti-layout-board"></i></div><div><div class="about-name">VidBoards</div><div class="about-ver">v1.3.0</div></div></div></div>
             <div class="about-dev">${t('developer')}: <strong>${t('dev_name')}</strong></div>
             <div style="margin-top:5px;display:flex;flex-direction:column;gap:3px">
               <span class="about-link" id="link-dev-site" style="font-size:10px"><i class="ti ti-world"></i> kuzmabogdanov.ru</span>
@@ -3147,7 +3252,7 @@ function buildSettingsScreen(){
     </div>`;
   document.querySelectorAll('.sn-item[data-page]').forEach(item=>{item.onclick=()=>{document.querySelectorAll('.sn-item').forEach(i=>i.classList.remove('active'));item.classList.add('active');document.querySelectorAll('.s-page').forEach(p=>p.classList.remove('active'));document.getElementById('s-'+item.dataset.page).classList.add('active');};});
   document.querySelectorAll('.theme-opt').forEach(opt=>{opt.onclick=()=>applyTheme(opt.dataset.theme);});
-  document.querySelectorAll('.lang-opt').forEach(opt=>{opt.onclick=()=>{applyLang(opt.dataset.lang,false);persist();};});
+  document.querySelectorAll('.lang-opt').forEach(opt=>{opt.onclick=()=>applyLang(opt.dataset.lang,false);});
   document.querySelectorAll('.thumb-mode-opt').forEach(opt=>{opt.onclick=()=>{thumbMode=opt.dataset.mode;persist();buildSettingsScreen();};});
   const sidInput=document.getElementById('sid-input');
   const sidSave=()=>{
@@ -3184,6 +3289,9 @@ async function init(){
   if(settings.seqImageDuration)seqImageDuration=settings.seqImageDuration;
   if(settings.gridStyle)gridStyle=settings.gridStyle;
   if(settings.zoomStep)zoomStep=settings.zoomStep;
+  if(settings.snapOn!==undefined)snapOn=settings.snapOn;
+  if(settings.optimizePlay!==undefined)optimizePlay=settings.optimizePlay;
+  if(settings.loopEnabled!==undefined)loopEnabled=settings.loopEnabled;
   const locale=await api.getLocale();
   const sys=(locale||'en').toLowerCase().split('-')[0];
   const slavic=['ru','be','uk'];

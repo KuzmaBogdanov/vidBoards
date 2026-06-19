@@ -1,5 +1,20 @@
 # Changelog
 
+## [1.3.0] — 2026-06-17
+
+### Added
+- **Recent Projects** — app now tracks the last 30 opened projects from any folder on the PC, sorted by last-opened date (most recent at top).
+- **All Projects: sort** — sort by date or A–Z, persisted between sessions.
+- **All Projects: folder hint** — "?" icon shows the exact path of the app's default projects folder.
+- **Search placeholder** — reflects the active view (Recent / All Projects / Trash).
+- **Persist toolbar state** — Snap, Opt and Loop button states are now saved and restored across app restarts.
+- **Ctrl + scroll wheel** — holds Ctrl while scrolling to zoom 3× faster (relative to the zoom speed set in Settings).
+
+### Fixed
+- **Video playback overlay** — circle icon is hidden while a video plays; reappears as a play icon when paused, stopped, or ended.
+
+---
+
 ## [1.1.0] — 2026-06-16
 
 ### Added

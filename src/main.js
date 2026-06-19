@@ -200,6 +200,33 @@ ipcMain.handle('list-projects', () => {
     .sort((a,b) => new Date(b.modified)-new Date(a.modified));
 });
 
+ipcMain.handle('get-projects-meta', async (_, paths) => {
+  return Promise.all(paths.map(async fp => {
+    try {
+      await fs.promises.access(fp);
+      const [stat, buf] = await Promise.all([
+        fs.promises.stat(fp),
+        fs.promises.readFile(fp, 'utf8')
+      ]);
+      const d = JSON.parse(buf);
+      const thumbPath = fp.replace(/\.vdb$/, '.thumb.jpg');
+      let thumbnail = null;
+      try {
+        const tb = await fs.promises.readFile(thumbPath);
+        thumbnail = 'data:image/jpeg;base64,' + tb.toString('base64');
+      } catch {}
+      return {
+        path: fp,
+        name: d.name || path.basename(fp, '.vdb'),
+        modified: stat.mtime.toISOString(),
+        fileCount: (d.files||[]).length,
+        videoCount: (d.files||[]).filter(f => f.type==='v').length,
+        thumbnail
+      };
+    } catch(e) { return e.code === 'ENOENT' ? null : { path: fp, error: true }; }
+  }));
+});
+
 ipcMain.handle('save-thumb', (_, vdbPath, dataUrl) => {
   try {
     const base64 = dataUrl.replace(/^data:image\/\w+;base64,/, '');
