@@ -78,6 +78,8 @@ npm run build:mac    # macOS
 npm run build:linux  # Linux
 ```
 
+You can support me - https://dalink.to/kuzmabogdanov
+
 ## License
 
 MIT © Kuzma Bogdanov
