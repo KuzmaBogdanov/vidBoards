@@ -275,6 +275,9 @@ canvas.grid-cv{position:absolute;inset:0;pointer-events:none}
 .lang-opt{padding:5px 13px;border-radius:6px;border:0.5px solid var(--border3);font-size:11px;color:var(--text3);background:var(--bg4);font-weight:500}
 .lang-opt:hover{background:var(--bg5)}
 .lang-opt.sel{background:var(--accent-bg);border-color:var(--accent);color:var(--accent-t)}
+.sw-opt{padding:5px 13px;border-radius:6px;border:0.5px solid var(--border3);font-size:11px;color:var(--text3);background:var(--bg4);font-weight:500}
+.sw-opt:hover{background:var(--bg5)}
+.sw-opt.sel{background:var(--accent-bg);border-color:var(--accent);color:var(--accent-t)}
 .auto-badge{font-size:9px;background:var(--green-bg);color:var(--green);border-radius:4px;padding:1px 6px;margin-left:5px}
 .about-card{background:var(--bg3);border:0.5px solid var(--border2);border-radius:10px;padding:16px;margin-bottom:12px}
 .about-app-row{display:flex;align-items:center;gap:12px;margin-bottom:12px}

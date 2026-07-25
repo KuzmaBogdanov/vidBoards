@@ -1,5 +1,5 @@
 // ═══════════════════════════════════════════════════════════════════
-//  VidBoards — renderer.js  v1.3.0
+//  VidBoards — renderer.js  v1.4.0
 // ═══════════════════════════════════════════════════════════════════
 
 const T = {
@@ -83,6 +83,14 @@ const T = {
     sort_date:'По дате', sort_name:'А–Я',
     tip_recent:'Недавно открытые проекты из любой папки на этом ПК',
     tip_all_from:'Проекты из ',
+    delete_source:'Удалить источник',
+    confirm_delete_source:'Удалить исходный файл?',
+    confirm_delete_source_sub:'Карточка удалится с доски, а файл — с диска (в Корзину). Восстановить будет невозможно.',
+    fast_source_delete:'Быстрое удаление источника',
+    fast_source_delete_sub:'Удалённые файлы уходят в Корзину. Сочетание: Shift+Del или Shift+Backspace.',
+    hint_source_deleted:'Карточка и файл удалены',
+    hint_source_delete_failed:'Карточка удалена, файл удалить не удалось',
+    off:'Выкл', on:'Вкл',
   },
   en: {
     home:'Home', new_project:'New Project', open_file:'Open File...',
@@ -164,6 +172,14 @@ const T = {
     sort_date:'By date', sort_name:'A–Z',
     tip_recent:'Recently opened projects from any folder on this PC',
     tip_all_from:'All projects from ',
+    delete_source:'Delete source',
+    confirm_delete_source:'Delete the source file?',
+    confirm_delete_source_sub:'The card will be removed from the board and the file sent to the Recycle Bin. This cannot be undone.',
+    fast_source_delete:'Fast source delete',
+    fast_source_delete_sub:'Deleted files go to the Recycle Bin. Shortcut: Shift+Del or Shift+Backspace.',
+    hint_source_deleted:'Card and file deleted',
+    hint_source_delete_failed:'Card deleted, could not delete file',
+    off:'Off', on:'On',
   }
 };
 
@@ -183,6 +199,7 @@ const STICKY_TEXT={none:'#ffffff',green:'#000000',blue:'#ffffff',red:'#ffffff',y
 
 // ── СОСТОЯНИЕ ───────────────────────────────────────────────────────
 let lang='ru', theme='dark', autoLang=true, thumbMode='viewport', prevScreen='home';
+let fastSourceDelete=false;
 let boardProjects=[], activeBoardIndex=-1, boardProject=null;
 let zoom=1, panX=0, panY=0, snapOn=true;
 let isPlaying=false, isPaused=false, loopEnabled=false, optimizePlay=true, seqMode=false, seqImageDuration=3;
@@ -197,7 +214,17 @@ let activeFilter=null;
 let selectedCardId=null;   // выбранная карточка
 let selectedLabelId=null;  // выбранный лейбл (отдельно!)
 const GRID=40;
-const undoStack=[], redoStack=[], MAX_UNDO=20;
+const MAX_UNDO=20;
+// undoStack/redoStack раньше были общими на все открытые доски — Ctrl+Z на вкладке B
+// мог откатить и перезаписать карточками с вкладки A. Теперь стек привязан к объекту
+// проекта через WeakMap: переключение вкладки автоматически переключает историю.
+const undoStacksByProject=new WeakMap();
+function _undoState(){
+  if(!boardProject)return{undo:[],redo:[]};
+  let s=undoStacksByProject.get(boardProject);
+  if(!s){s={undo:[],redo:[]};undoStacksByProject.set(boardProject,s);}
+  return s;
+}
 const cardPreviews=new Map();
 const multiSelCards=new Set();
 const multiSelLabels=new Set();
@@ -301,13 +328,13 @@ function finalizeSelBox(bx,by,bw,bh,mode='replace'){
   else clearMultiSel();
 }
 function alignMultiSel(dir){
-  snapshot();
   const GAP=16;
   const items=[];
   multiSelCards.forEach(id=>{const f=getBoardFiles().find(f=>f.id===id);if(f)items.push({type:'card',id,x:f.x,y:f.y,w:f.w,h:f.h,obj:f});});
   multiSelLabels.forEach(id=>{const l=getLabels().find(l=>l.id===id);if(!l)return;const el=document.getElementById('label-'+id);const w=el?el.offsetWidth/zoom:80;const h=el?el.offsetHeight/zoom:24;items.push({type:'label',id,x:l.x,y:l.y,w,h,obj:l});});
   multiSelStickies.forEach(id=>{const s=getStickies().find(s=>s.id===id);if(s)items.push({type:'sticky',id,x:s.x,y:s.y,w:s.w,h:s.h,obj:s});});
   if(items.length<2)return;
+  snapshot();
   if(dir==='row'){
     items.sort((a,b)=>a.x-b.x);
     const anchorY=Math.min(...items.map(i=>i.y));
@@ -339,7 +366,7 @@ function openMultiCtx(x,y){
   const disLabel=anyActive?t('deactivate'):t('activate');
   const disIcon=anyActive?'ti-player-pause':'ti-player-play';
   const hasVids=Array.from(multiSelCards).some(id=>{const f=getBoardFiles().find(f=>f.id===id);return f&&f.type==='v'&&!f.disabled&&!f.missing;});
-  openCtx([
+  const items=[
     {icon:'ti-stack',label:lang==='ru'?`Выбрано: ${multiSelCards.size+multiSelLabels.size+multiSelStickies.size} эл.`:`Selected: ${multiSelCards.size+multiSelLabels.size+multiSelStickies.size}`,action:()=>{}},
     'sep',
     {icon:disIcon,label:disLabel,shortcut:'Ctrl+D',action:()=>{
@@ -351,15 +378,19 @@ function openMultiCtx(x,y){
     {icon:'ti-layout-columns',label:t('align_row'),action:()=>{alignMultiSel('row');}},
     {icon:'ti-layout-rows',label:t('align_col'),action:()=>{alignMultiSel('col');}},
     'sep',
-    {icon:'ti-trash',label:t('delete'),danger:true,action:()=>{
+  ];
+  if(multiSelCards.size>0){
+    items.push({icon:'ti-trash-x',label:t('delete_source'),danger:true,action:()=>confirmDeleteMultiSourceModal()});
+  }
+  items.push({icon:'ti-trash',label:t('delete'),danger:true,action:()=>{
       snapshot();
       multiSelLabels.forEach(id=>{boardProject.labels=getLabels().filter(l=>l.id!==id);const el=document.getElementById('label-'+id);if(el)el.remove();});
       multiSelCards.forEach(id=>{boardProject.files=(boardProject.files||[]).filter(f=>f.id!==id);const el=document.getElementById('card-'+id);if(el)el.remove();});
       multiSelStickies.forEach(id=>{boardProject.stickies=getStickies().filter(s=>s.id!==id);const el=document.getElementById('sticky-'+id);if(el)el.remove();});
       clearMultiSel();updateStatus();applyFilter();
-    }},
-    'sep',
-  ],x,y);
+  }});
+  items.push('sep');
+  openCtx(items,x,y);
   if(multiSelCards.size>0){
     const colDiv=document.createElement('div');colDiv.className='ctx-colors-row';
     const lbl=document.createElement('span');lbl.className='ctx-clbl';lbl.textContent=t('color_label');colDiv.appendChild(lbl);
@@ -394,7 +425,41 @@ function formatSize(bytes){
   if(bytes<1024*1024)return Math.round(bytes/1024)+' KB';
   return(bytes/1024/1024).toFixed(1)+' MB';
 }
-function fileToUrl(p){let s=p.replace(/\\/g,'/');if(s[0]!=='/')s='/'+s;return'file://'+s;}
+function fileToUrl(p){
+  let s=p.replace(/\\/g,'/');if(s[0]!=='/')s='/'+s;
+  // Кодируем каждый сегмент (# ? % и т.п. ломают URL), букву диска (N:) не трогаем
+  return'file://'+s.split('/').map(seg=>/^[A-Za-z]:$/.test(seg)?seg:encodeURIComponent(seg)).join('/');
+}
+// Экранирование пользовательских строк перед вставкой в innerHTML / value-атрибуты
+const escHtml=s=>String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+
+// Временное видео для захвата кадра (превью деакт. карточки / PNG-экспорт): ДОЛЖНО реально
+// быть в DOM и пересекать viewport — detached-элементы и элементы вне видимой области
+// Chromium может не декодировать вовсе (отсюда «помогает scroll» до карточки перед экспортом)
+async function loadVideoFrame(src,timeoutMs){
+  const v=document.createElement('video');
+  v.muted=true;v.preload='auto';v.src=src;
+  v.style.cssText='position:fixed;left:0;top:0;width:2px;height:2px;opacity:0.01;pointer-events:none;z-index:-1';
+  document.body.appendChild(v);
+  const loaded=await new Promise(resolve=>{
+    const timer=setTimeout(()=>resolve(false),timeoutMs);
+    v.addEventListener('loadeddata',()=>{clearTimeout(timer);resolve(true);},{once:true});
+    v.addEventListener('error',()=>{clearTimeout(timer);resolve(false);},{once:true});
+  });
+  let seeked=false;
+  if(loaded){
+    // loadeddata гарантирует наличие данных, но НЕ гарантирует декодированный в буфер
+    // кадр, который drawImage сможет прочитать — принудительный seek форсирует декод
+    const target=Math.min(0.1,(v.duration&&isFinite(v.duration)?v.duration:1)/2)||0.05;
+    seeked=await new Promise(resolve=>{
+      const timer=setTimeout(()=>resolve(false),1500);
+      v.addEventListener('seeked',()=>{clearTimeout(timer);resolve(true);},{once:true});
+      v.currentTime=target;
+    });
+  }
+  const ok=loaded&&seeked;
+  return {video:ok?v:null,cleanup:()=>{v.src='';v.remove();}};
+}
 
 // ── ТЕМА / ЯЗЫК ─────────────────────────────────────────────────────
 function applyTheme(th){
@@ -418,7 +483,7 @@ function applyLang(l,auto){
   renderTabs();
 }
 
-function persist(){api.saveSettings({theme,lang,thumbMode,seqImageDuration,gridStyle,zoomStep,snapOn,optimizePlay,loopEnabled});}
+function persist(){api.saveSettings({theme,lang,thumbMode,seqImageDuration,gridStyle,zoomStep,snapOn,optimizePlay,loopEnabled,fastSourceDelete});}
 
 // ── ЭКРАНЫ / ТАБЫ ───────────────────────────────────────────────────
 function showScreen(name){
@@ -438,7 +503,7 @@ function renderTabs(){
   boardProjects.forEach((proj,idx)=>{
     const isActive=getCurrentScreen()==='board'&&idx===activeBoardIndex;
     const tab=document.createElement('div');tab.className='t-tab'+(isActive?' active':'');
-    tab.innerHTML=`<i class="ti ti-layout-board"></i><span style="max-width:120px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${proj.name}</span><span class="t-tab-close" data-idx="${idx}"><i class="ti ti-x"></i></span>`;
+    tab.innerHTML=`<i class="ti ti-layout-board"></i><span style="max-width:120px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${escHtml(proj.name)}</span><span class="t-tab-close" data-idx="${idx}"><i class="ti ti-x"></i></span>`;
     tab.draggable=true;
     tab.addEventListener('dragstart',e=>{
       e.dataTransfer.effectAllowed='move';e.dataTransfer.setData('text/plain',String(idx));
@@ -486,20 +551,29 @@ function renderTabs(){
 function closeBoard(idx){
   const proj=boardProjects[idx];if(!proj)return;
   const doClose=()=>{
-    if(idx===activeBoardIndex){proj.zoom=zoom;proj.canvasX=panX;proj.canvasY=panY;}
+    const wasActive=idx===activeBoardIndex;
+    if(wasActive){proj.zoom=zoom;proj.canvasX=panX;proj.canvasY=panY;}
+    const activeProj=wasActive?null:boardProjects[activeBoardIndex];
     boardProjects.splice(idx,1);
     if(!boardProjects.length){boardProject=null;activeBoardIndex=-1;showScreen('home');buildHomeScreen();}
-    else{
+    else if(wasActive){
       activeBoardIndex=Math.min(idx,boardProjects.length-1);boardProject=boardProjects[activeBoardIndex];
       zoom=boardProject.zoom||1;panX=boardProject.canvasX||0;panY=boardProject.canvasY||0;
       showScreen('board');buildBoardScreen();
+    } else {
+      // Закрыли фоновую вкладку — активная доска не меняется, экран не перестраиваем
+      activeBoardIndex=boardProjects.indexOf(activeProj);
+      boardProject=activeBoardIndex!==-1?boardProjects[activeBoardIndex]:null;
     }
     renderTabs();
   };
   const saveThumbThenClose=async()=>{
-    if(proj._path&&idx===activeBoardIndex){
-      const cvs=document.getElementById('board-canvas');
-      const snap={panX,panY,zoom,w:cvs?cvs.offsetWidth:1280,h:cvs?cvs.offsetHeight:720};
+    const cvs=document.getElementById('board-canvas');
+    // Экран доски может быть скрыт (ушли на главный экран, не переключая вкладку) —
+    // offsetWidth/Height тогда 0, и рендер даст сплошной чёрный/светлый прямоугольник.
+    // В этом случае превью просто не трогаем — оно обновится при следующем обычном сохранении.
+    if(proj._path&&idx===activeBoardIndex&&cvs&&cvs.offsetWidth&&cvs.offsetHeight){
+      const snap={panX,panY,zoom,w:cvs.offsetWidth,h:cvs.offsetHeight};
       try{
         const cv=await renderBoardToPng(0.35,snap);
         if(cv){
@@ -514,15 +588,16 @@ function closeBoard(idx){
   if(proj._dirty){
     openModal(
       t('save_changes'),
-      `<p class="m-text">«${proj.name}»</p><p class="m-sub">${t('unsaved_lost')}</p>`,
+      `<p class="m-text">«${escHtml(proj.name)}»</p><p class="m-sub">${t('unsaved_lost')}</p>`,
       t('yes_save'),'ok',
-      async()=>{await saveBoardProjectByIndex(idx);saveThumbThenClose();}
+      async()=>{const ok=await saveBoardProjectByIndex(idx);if(ok)saveThumbThenClose();}
     );
     const nb=document.getElementById('m-cancel');
     nb.textContent=t('no_close');
     nb.onclick=()=>{closeModal();doClose();};
   } else {
-    saveBoardProjectByIndex(idx);saveThumbThenClose();
+    // Проект не менялся — .vdb не перезаписываем (не сбиваем mtime), только превью
+    saveThumbThenClose();
   }
 }
 
@@ -640,7 +715,7 @@ function buildHomeScreen(){
           <button class="nav-btn${homeView==='all'?' active':''}" data-view="all"><i class="ti ti-layout-board"></i> ${t('all_projects')}</button>
           <button class="nav-btn${homeView==='trash'?' active':''}" data-view="trash"><i class="ti ti-trash"></i> ${t('trash')}</button>
         </div>
-        <div class="sb-bottom" id="sb-bottom"><div class="sb-ver">VidBoards v1.3.0</div></div>
+        <div class="sb-bottom" id="sb-bottom"><div class="sb-ver">VidBoards v1.4.0</div></div>
       </div>
       <div class="home-main">
         <div class="home-topbar">
@@ -731,7 +806,7 @@ async function renderProjectsView(cont,search,seq){
       const row=document.createElement('div');row.className='file-row';row.style.position='relative';
       const isVid=/\.(mp4|mov|webm|avi|mkv)$/i.test(f.path);
       const icon=document.createElement('div');icon.className=`file-icon ${isVid?'v':'i'}`;icon.innerHTML=`<i class="ti ti-${isVid?'video':'photo'}"></i>`;
-      const info=document.createElement('div');info.className='file-info';info.innerHTML=`<div class="file-name">${f.name}</div><div class="file-path">${f.path}</div>`;
+      const info=document.createElement('div');info.className='file-info';info.innerHTML=`<div class="file-name">${escHtml(f.name)}</div><div class="file-path">${escHtml(f.path)}</div>`;
       const size=document.createElement('span');size.className='file-size';size.textContent=formatSize(f.size);
       const date=document.createElement('span');date.className='file-date';date.textContent=formatDate(f.date);
       const dots=document.createElement('button');
@@ -788,7 +863,7 @@ async function renderTrashView(cont,search,seq){
   } else {
     items.forEach(item=>{
       const d=document.createElement('div');d.className='trash-item';
-      d.innerHTML=`<i class="ti ti-layout-board" style="font-size:18px;color:var(--text4)"></i><div style="flex:1"><div class="trash-name">${item.name}</div><div style="font-size:9px;color:var(--text4)">${formatDate(item.deletedAt)}</div></div><span class="trash-days">${item.daysLeft} ${t('days')}</span><span class="trash-restore">${t('restore')}</span>`;
+      d.innerHTML=`<i class="ti ti-layout-board" style="font-size:18px;color:var(--text4)"></i><div style="flex:1"><div class="trash-name">${escHtml(item.name)}</div><div style="font-size:9px;color:var(--text4)">${formatDate(item.deletedAt)}</div></div><span class="trash-days">${item.daysLeft} ${t('days')}</span><span class="trash-restore">${t('restore')}</span>`;
       d.querySelector('.trash-restore').onclick=async()=>{await api.restoreProject(item.path);showHint(`«${item.name}» ${t('hint_restored')}`);renderHomeContent('');};
       sec.appendChild(d);
     });
@@ -808,7 +883,7 @@ function makeProjCard(p){
   }
   const fade=document.createElement('div');fade.className='thumb-fade';thumb.appendChild(fade);
   const info=document.createElement('div');info.className='proj-info';
-  info.innerHTML=`<div class="proj-name">${p.name}</div><div class="proj-meta">${p.fileCount} ${t('files_lbl')} · ${p.videoCount} ${t('videos_lbl')} · ${formatDate(p.modified)}</div>`;
+  info.innerHTML=`<div class="proj-name">${escHtml(p.name)}</div><div class="proj-meta">${p.fileCount} ${t('files_lbl')} · ${p.videoCount} ${t('videos_lbl')} · ${formatDate(p.modified)}</div>`;
   const dots=document.createElement('button');dots.className='proj-dots';dots.innerHTML='<i class="ti ti-dots-vertical"></i>';
   dots.onclick=e=>{e.stopPropagation();openProjCtx(p,e.clientX,e.clientY);};
   card.appendChild(thumb);card.appendChild(info);card.appendChild(dots);
@@ -829,13 +904,27 @@ function openProjCtx(p,x,y){
   ],x,y);
 }
 function renameProjModal(p){
-  openModal(t('rename'),`<label class="m-label">${t('proj_name')}</label><input class="m-input" id="inp-rename" value="${p.name}">`,t('save'),'ok',async()=>{
-    const v=document.getElementById('inp-rename').value.trim();if(!v)return;
-    const np=await api.renameProject(p.path,v);if(np){const op=boardProjects.find(bp=>bp._path===p.path);if(op){op.name=v;op._path=np;renderTabs();}showHint(`«${v}» — ${t('rename')}`);renderHomeContent('');}
-  });
+  openModal(t('rename'),`<label class="m-label">${t('proj_name')}</label><input class="m-input" id="inp-rename" value="${escHtml(p.name)}" style="margin-bottom:4px"><div id="m-rename-err" style="display:none;color:var(--danger);font-size:11px;margin-bottom:8px"></div>`,t('save'),'ok',null);
+  setTimeout(()=>{
+    document.getElementById('m-ok').onclick=async()=>{
+      const v=(document.getElementById('inp-rename').value||'').trim();if(!v)return;
+      const err=document.getElementById('m-rename-err');
+      const safe=v.replace(/[<>:"/\\|?*]/g,'_');
+      const dir=p.path.replace(/[\\/][^\\/]*$/,'');
+      const newPath=dir+'/'+safe+'.vdb';
+      const samePath=newPath.replace(/\\/g,'/').toLowerCase()===p.path.replace(/\\/g,'/').toLowerCase();
+      if(!samePath&&await api.fileExists(newPath)){
+        if(err){err.textContent=t('proj_name_taken');err.style.display='block';}return;
+      }
+      closeModal();
+      const np=await api.renameProject(p.path,v);
+      if(np){const op=boardProjects.find(bp=>bp._path===p.path);if(op){op.name=v;op._path=np;renderTabs();}showHint(`«${v}» — ${t('rename')}`);renderHomeContent('');}
+      else showHint(t('save_error'));
+    };
+  },60);
 }
 function saveAsProjModal(p){
-  openModal(t('save_as'),`<label class="m-label">${t('proj_name')}</label><input class="m-input" id="inp-saveas" value="${p.name}${t('copy_suffix')}" style="margin-bottom:4px"><div id="m-saveas-err" style="display:none;color:var(--danger);font-size:11px;margin-bottom:8px"></div><label class="m-label">${t('save_folder')}</label><div style="display:flex;gap:6px"><input class="m-input" id="inp-saveas-path" style="flex:1" readonly><button id="btn-saveas-browse" style="all:unset;box-sizing:border-box;background:var(--bg5);border:0.5px solid var(--border3);color:var(--text2);border-radius:6px;padding:0 12px;font-size:11px;cursor:pointer;white-space:nowrap">${t('browse')}</button></div>`,t('save'),'ok',null);
+  openModal(t('save_as'),`<label class="m-label">${t('proj_name')}</label><input class="m-input" id="inp-saveas" value="${escHtml(p.name)}${t('copy_suffix')}" style="margin-bottom:4px"><div id="m-saveas-err" style="display:none;color:var(--danger);font-size:11px;margin-bottom:8px"></div><label class="m-label">${t('save_folder')}</label><div style="display:flex;gap:6px"><input class="m-input" id="inp-saveas-path" style="flex:1" readonly><button id="btn-saveas-browse" style="all:unset;box-sizing:border-box;background:var(--bg5);border:0.5px solid var(--border3);color:var(--text2);border-radius:6px;padding:0 12px;font-size:11px;cursor:pointer;white-space:nowrap">${t('browse')}</button></div>`,t('save'),'ok',null);
   setTimeout(async()=>{
     const def=await api.getDefaultProjectsDir();
     const pi=document.getElementById('inp-saveas-path');if(pi)pi.value=def;
@@ -857,7 +946,7 @@ function saveAsProjModal(p){
   },60);
 }
 function deleteProjModal(p){
-  openModal(t('confirm_delete'),`<p class="m-text">«${p.name}»</p><p class="m-sub">${t('confirm_delete_sub')}</p>`,t('move_to_trash'),'danger-btn',async()=>{
+  openModal(t('confirm_delete'),`<p class="m-text">«${escHtml(p.name)}»</p><p class="m-sub">${t('confirm_delete_sub')}</p>`,t('move_to_trash'),'danger-btn',async()=>{
     await api.trashProject(p.path);showHint(`«${p.name}» ${t('hint_deleted')}`);renderHomeContent('');
   });
 }
@@ -977,7 +1066,7 @@ function buildBoardScreen(){
         <span class="st-lbl">${t('proj_size')}</span>
         <span class="st-val ok" id="st-size">—</span>
       </div>
-      <span class="st-badge">VidBoards v1.3</span>
+      <span class="st-badge">VidBoards v1.4</span>
     </div>`;
 
   initBoardEvents();
@@ -986,6 +1075,7 @@ function buildBoardScreen(){
   renderAllCards();
   updateStatus();
   updateTransport();
+  updateUndoBtns();
 }
 
 const CURSOR_ADD="url(\"data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='24' height='24'%3E%3Ccircle cx='12' cy='12' r='10' fill='%2322c55e' fill-opacity='.2' stroke='%2316a34a' stroke-width='1.5'/%3E%3Cpath d='M12 8v8M8 12h8' stroke='%2316a34a' stroke-width='2' stroke-linecap='round'/%3E%3C/svg%3E\") 12 12, crosshair";
@@ -1026,7 +1116,13 @@ async function _onWindowPaste(e){
   const p=await api.pasteClipboardImage();
   if(p)await pasteAddFiles([p]);
 }
+// Реестр window-слушателей экрана доски: initBoardEvents вызывается при каждом
+// buildBoardScreen — старые анонимные слушатели надо снимать, иначе они копятся (утечка)
+const _boardWinHandlers=[];
+function _boardWinOn(type,fn){window.addEventListener(type,fn);_boardWinHandlers.push([type,fn]);}
 function initBoardEvents(){
+  _boardWinHandlers.forEach(([type,fn])=>window.removeEventListener(type,fn));
+  _boardWinHandlers.length=0;
   const canvas=document.getElementById('board-canvas');
 
   // Кнопка Label — кастомный drag на холст
@@ -1043,11 +1139,11 @@ function initBoardEvents(){
     document.body.appendChild(labelGhost);
     labelBtn.style.opacity='0.4';
   });
-  window.addEventListener('mousemove',e=>{
+  _boardWinOn('mousemove',e=>{
     if(!labelDrag||!labelGhost)return;
     labelGhost.style.left=e.clientX+'px';labelGhost.style.top=e.clientY+'px';
   });
-  window.addEventListener('mouseup',e=>{
+  _boardWinOn('mouseup',e=>{
     if(!labelDrag)return;
     labelDrag=false;
     if(labelGhost){labelGhost.remove();labelGhost=null;}
@@ -1074,11 +1170,11 @@ function initBoardEvents(){
     document.body.appendChild(stickyGhost);
     stickyBtn.style.opacity='0.4';
   });
-  window.addEventListener('mousemove',e=>{
+  _boardWinOn('mousemove',e=>{
     if(!stickyDrag||!stickyGhost)return;
     stickyGhost.style.left=e.clientX+'px';stickyGhost.style.top=e.clientY+'px';
   });
-  window.addEventListener('mouseup',e=>{
+  _boardWinOn('mouseup',e=>{
     if(!stickyDrag)return;
     stickyDrag=false;
     if(stickyGhost){stickyGhost.remove();stickyGhost=null;}
@@ -1121,8 +1217,8 @@ function initBoardEvents(){
     drawMinimap();
   };
   mmCv.addEventListener('mousedown',e=>{mmDragging=true;mmSnapState=minimapState();mmNavigate(e,mmSnapState);});
-  window.addEventListener('mousemove',e=>{if(mmDragging&&mmSnapState)mmNavigate(e,mmSnapState);});
-  window.addEventListener('mouseup',()=>{mmDragging=false;mmSnapState=null;});
+  _boardWinOn('mousemove',e=>{if(mmDragging&&mmSnapState)mmNavigate(e,mmSnapState);});
+  _boardWinOn('mouseup',()=>{mmDragging=false;mmSnapState=null;});
   mmCv.addEventListener('wheel',e=>{e.preventDefault();e.stopPropagation();const bd=document.getElementById('board-canvas');const step=e.ctrlKey?zoomStep*3:zoomStep;scheduleZoom(e.deltaY>0?-step:step,bd?bd.offsetWidth/2:undefined,bd?bd.offsetHeight/2:undefined);},{passive:false});
   document.getElementById('btn-tl-close').onclick=toggleTimeline;
   const tlScrubber=document.getElementById('tl-scrubber');
@@ -1234,7 +1330,7 @@ function initBoardEvents(){
     panning=true;panSX=e.clientX-panX;panSY=e.clientY-panY;
   });
   // Средняя кнопка — перемещение поверх любых элементов
-  window.addEventListener('mousedown',e=>{
+  _boardWinOn('mousedown',e=>{
     if(e.button!==1)return;
     const cvs=document.getElementById('board-canvas');if(!cvs)return;
     const rect=cvs.getBoundingClientRect();
@@ -1244,7 +1340,7 @@ function initBoardEvents(){
     document.body.style.cursor='grabbing';
   });
   canvas.addEventListener('auxclick',e=>{if(e.button===1)e.preventDefault();});
-  window.addEventListener('mousemove',e=>{
+  _boardWinOn('mousemove',e=>{
     const _cvs=document.getElementById('board-canvas');
     if(_cvs){const _r=_cvs.getBoundingClientRect();const _w=toWorld(e.clientX-_r.left,e.clientY-_r.top);lastMouseWX=_w.wx;lastMouseWY=_w.wy;}
     if(selBoxing){
@@ -1261,7 +1357,7 @@ function initBoardEvents(){
     getStickies().forEach(s=>{const el=document.getElementById('sticky-'+s.id);if(!el)return;const sc=toScreen(s.x,s.y);el.style.left=sc.sx+'px';el.style.top=sc.sy+'px';});
     drawMinimap();
   });
-  window.addEventListener('mouseup',e=>{
+  _boardWinOn('mouseup',e=>{
     if(selBoxing){
       selBoxing=false;
       const box=document.getElementById('sel-box');
@@ -1317,6 +1413,13 @@ function onBoardKey(e){
   if(e.key==='Delete'||e.key==='Backspace'){
     if(document.activeElement.tagName==='INPUT'||document.activeElement.contentEditable==='true')return;
     e.preventDefault();
+    if(e.shiftKey&&fastSourceDelete){
+      if(hasMultiSel()){
+        if(multiSelCards.size>0){deleteMultiSelWithSource();return;}
+      } else if(selectedCardId!==null){
+        deleteCardWithSource(selectedCardId);return;
+      }
+    }
     if(hasMultiSel()){
       snapshot();
       multiSelLabels.forEach(id=>{boardProject.labels=getLabels().filter(l=>l.id!==id);const el=document.getElementById('label-'+id);if(el)el.remove();});
@@ -1426,21 +1529,31 @@ async function addFileToBoard(filePath,dropX,dropY){
 function snapshot(){
   if(!boardProject)return;
   boardProject._dirty=true;
-  undoStack.push(JSON.stringify({files:boardProject.files,labels:boardProject.labels||[],stickies:boardProject.stickies||[]}));
-  if(undoStack.length>MAX_UNDO)undoStack.shift();
-  redoStack.length=0;updateUndoBtns();
+  const st=_undoState();
+  st.undo.push(JSON.stringify({files:boardProject.files,labels:boardProject.labels||[],stickies:boardProject.stickies||[]}));
+  if(st.undo.length>MAX_UNDO)st.undo.shift();
+  st.redo.length=0;updateUndoBtns();
 }
 function updateUndoBtns(){
   const u=document.getElementById('btn-undo'),r=document.getElementById('btn-redo');
-  if(u)u.disabled=!undoStack.length;if(r)r.disabled=!redoStack.length;
+  const st=_undoState();
+  if(u)u.disabled=!st.undo.length;if(r)r.disabled=!st.redo.length;
 }
 function snapState(){return JSON.stringify({files:boardProject.files,labels:boardProject.labels||[],stickies:boardProject.stickies||[]});}
+let _checkMissingTimer=null;
+function scheduleCheckMissingFiles(){
+  // Быстрая серия Ctrl+Z/Ctrl+Shift+Z иначе накапливает десятки параллельных
+  // последовательных IPC-циклов checkMissingFiles — debounce схлопывает их в один
+  if(_checkMissingTimer)clearTimeout(_checkMissingTimer);
+  _checkMissingTimer=setTimeout(()=>{_checkMissingTimer=null;checkMissingFiles();},300);
+}
 function restoreSnap(snap){
   const s=JSON.parse(snap);boardProject.files=s.files||[];boardProject.labels=s.labels||[];boardProject.stickies=s.stickies||[];
   renderAllCards();updateStatus();updateUndoBtns();
+  scheduleCheckMissingFiles();
 }
-function doUndo(){if(!undoStack.length)return;redoStack.push(snapState());restoreSnap(undoStack.pop());showHint(t('undo'));}
-function doRedo(){if(!redoStack.length)return;undoStack.push(snapState());restoreSnap(redoStack.pop());showHint(t('redo'));}
+function doUndo(){const st=_undoState();if(!st.undo.length)return;st.redo.push(snapState());restoreSnap(st.undo.pop());showHint(t('undo'));}
+function doRedo(){const st=_undoState();if(!st.redo.length)return;st.undo.push(snapState());restoreSnap(st.redo.pop());showHint(t('redo'));}
 
 // ── ТРАНСПОРТ ────────────────────────────────────────────────────────
 function isCardVisible(f){
@@ -2109,20 +2222,19 @@ function makeCard(f){
         img.style.cssText='position:absolute;inset:0;width:100%;height:100%;object-fit:cover;opacity:0.55;filter:grayscale(50%);pointer-events:none';
         img.src=preview;thumb.appendChild(img);
       } else if(f.type==='v'&&!f.missing){
-        const tmp=document.createElement('video');
-        tmp.muted=true;tmp.preload='auto';tmp.src=fileToUrl(f.orig);
-        tmp.addEventListener('loadeddata',()=>{
-          try{
-            const cv=document.createElement('canvas');
-            cv.width=tmp.videoWidth||320;cv.height=tmp.videoHeight||180;
-            cv.getContext('2d').drawImage(tmp,0,0,cv.width,cv.height);
-            cardPreviews.set(f.id,cv.toDataURL('image/jpeg',0.7));
-            if(!f.duration&&tmp.duration&&isFinite(tmp.duration))f.duration=tmp.duration;
-            refreshCard(f);
-          }catch(err){}
-          tmp.src='';
-        },{once:true});
-        tmp.addEventListener('error',()=>{tmp.src='';},{once:true});
+        loadVideoFrame(fileToUrl(f.orig),5000).then(({video:tmp,cleanup})=>{
+          if(tmp){
+            try{
+              const cv=document.createElement('canvas');
+              cv.width=tmp.videoWidth||320;cv.height=tmp.videoHeight||180;
+              cv.getContext('2d').drawImage(tmp,0,0,cv.width,cv.height);
+              cardPreviews.set(f.id,cv.toDataURL('image/jpeg',0.7));
+              if(!f.duration&&tmp.duration&&isFinite(tmp.duration))f.duration=tmp.duration;
+              refreshCard(f);
+            }catch(err){}
+          }
+          cleanup();
+        });
       }
       const disOv=document.createElement('div');disOv.className='dis-overlay';
       const di=document.createElement('i');di.className='ti ti-player-pause-filled';di.style.cssText='font-size:22px;color:#aaa';
@@ -2160,7 +2272,7 @@ function makeCard(f){
   d.appendChild(rh);
 
   // Drag карточки
-  let dragging=false,moved=false,dsx=0,dsy=0,dwx=0,dwy=0,prevDX=0,prevDY=0;
+  let dragging=false,moved=false,dsx=0,dsy=0,dwx=0,dwy=0;
   d.addEventListener('mousedown',e=>{
     if(e.target.closest('.card-dots-btn')||e.target.closest('.resize-handle')||e.target.closest('.missing-rebind'))return;
     if(e.button!==0)return;
@@ -2176,10 +2288,11 @@ function makeCard(f){
     document.querySelectorAll('.board-label').forEach(l=>l.classList.remove('selected'));
     d.classList.add('selected');selectedCardId=f.id;selectedLabelId=null;
     dragging=true;moved=false;closeCtx();document.getElementById('board-canvas').focus();
-    dsx=e.clientX;dsy=e.clientY;dwx=f.x;dwy=f.y;prevDX=e.clientX;prevDY=e.clientY;
+    dsx=e.clientX;dsy=e.clientY;dwx=f.x;dwy=f.y;
+    window.addEventListener('mousemove',dragMove);window.addEventListener('mouseup',dragUp);
     if(hasMultiSel()){multiDragOX=e.clientX;multiDragOY=e.clientY;multiSelCards.forEach(id=>{const ff=getBoardFiles().find(x=>x.id===id);if(ff)multiDragC.set(id,{x:ff.x,y:ff.y});});multiSelLabels.forEach(id=>{const ll=getLabels().find(x=>x.id===id);if(ll)multiDragL.set(id,{x:ll.x,y:ll.y});});multiSelStickies.forEach(id=>{const ss=getStickies().find(x=>x.id===id);if(ss)multiDragS.set(id,{x:ss.x,y:ss.y});});}
   });
-  window.addEventListener('mousemove',e=>{
+  const dragMove=e=>{
     if(!dragging)return;
     if(!moved){snapshot();moved=true;}
     if(hasMultiSel()&&multiSelCards.has(f.id)){
@@ -2206,8 +2319,8 @@ function makeCard(f){
       if(snapOn){const s=snapW(nx,ny);nx=s.wx;ny=s.wy;}
       f.x=nx;f.y=ny;const sc2=toScreen(f.x,f.y);d.style.left=sc2.sx+'px';d.style.top=sc2.sy+'px';
     }
-  });
-  window.addEventListener('mouseup',()=>{if(dragging){dragging=false;}});
+  };
+  const dragUp=()=>{dragging=false;window.removeEventListener('mousemove',dragMove);window.removeEventListener('mouseup',dragUp);};
   d.addEventListener('contextmenu',e=>{
     e.preventDefault();e.stopPropagation();
     if(hasMultiSel()&&multiSelCards.has(f.id)){openMultiCtx(e.clientX,e.clientY);return;}
@@ -2237,7 +2350,7 @@ async function openMetaModal(f){
     ...PRIO.filter(k=>allKeys.includes(k)&&k!==seedKey),
     ...allKeys.filter(k=>!PRIO.includes(k)&&!SKIP.has(k)&&k!==seedKey),
   ];
-  const esc=s=>String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+  const esc=escHtml;
   const KEY_LABELS={
     parameters:lang==='ru'?'Параметры генерации':'Generation Parameters',
     prompt:lang==='ru'?'Параметры генерации':'Generation Parameters',
@@ -2315,6 +2428,7 @@ function openCardCtx(f,x,y){
     {icon:'ti-tag',label:t('meta_data'),action:()=>openMetaModal(f)},
     'sep',
     {icon:disIcon,label:disLabel,shortcut:'Ctrl+D',action:()=>toggleDisabled(f)},
+    {icon:'ti-trash-x',label:t('delete_source'),danger:true,action:()=>confirmDeleteSourceModal(f)},
     {icon:'ti-trash',label:t('delete'),shortcut:'Del',danger:true,action:()=>deleteCard(f.id)},
     'sep'
   );
@@ -2341,7 +2455,7 @@ function openCardCtx(f,x,y){
 }
 
 function renameCardModal(f){
-  openModal(t('rename'),`<label class="m-label">${t('files')}</label><input class="m-input" id="inp-cardname" value="${f.name}">`,t('save'),'ok',()=>{
+  openModal(t('rename'),`<label class="m-label">${t('files')}</label><input class="m-input" id="inp-cardname" value="${escHtml(f.name)}">`,t('save'),'ok',()=>{
     snapshot();const v=document.getElementById('inp-cardname').value.trim();if(!v)return;f.name=v;
     const el=document.getElementById('fname-'+f.id);if(el){el.textContent=v;el.title=v;}
   });
@@ -2384,6 +2498,44 @@ function deleteCard(id){
   if(selectedCardId===id)selectedCardId=null;
   updateStatus();applyFilter();
 }
+async function deleteCardWithSource(id){
+  const f=getBoardFiles().find(f=>f.id===id);
+  const orig=f?f.orig:null;
+  deleteCard(id); // snapshot() уже внутри — карточку можно вернуть Ctrl+Z, файл — нет
+  if(!orig)return;
+  const ok=await api.trashFile(orig);
+  showHint(ok?t('hint_source_deleted'):t('hint_source_delete_failed'));
+}
+function confirmDeleteSourceModal(f){
+  openModal(t('confirm_delete_source'),
+    `<p class="m-text">«${escHtml(f.name)}»</p><p class="m-sub">${t('confirm_delete_source_sub')}</p>`,
+    t('delete_source'),'danger-btn',
+    ()=>{deleteCardWithSource(f.id);});
+}
+async function deleteMultiSelWithSource(cardIds,labelIds,stickyIds){
+  // ids опциональны: Shift+Del читает актуальные Sets напрямую (без задержки);
+  // модалка подтверждения передаёт снимок ids, снятый в момент клика по пункту меню,
+  // т.к. Escape во время открытой модалки может очистить multiSel* Sets раньше клика OK.
+  cardIds=cardIds||Array.from(multiSelCards);
+  labelIds=labelIds||Array.from(multiSelLabels);
+  stickyIds=stickyIds||Array.from(multiSelStickies);
+  const origs=cardIds.map(id=>getBoardFiles().find(f=>f.id===id)).filter(Boolean).map(f=>f.orig);
+  snapshot();
+  labelIds.forEach(id=>{boardProject.labels=getLabels().filter(l=>l.id!==id);const el=document.getElementById('label-'+id);if(el)el.remove();});
+  cardIds.forEach(id=>{boardProject.files=(boardProject.files||[]).filter(f=>f.id!==id);const el=document.getElementById('card-'+id);if(el)el.remove();});
+  stickyIds.forEach(id=>{boardProject.stickies=getStickies().filter(s=>s.id!==id);const el=document.getElementById('sticky-'+id);if(el)el.remove();});
+  clearMultiSel();updateStatus();applyFilter();
+  const results=await Promise.all(origs.map(p=>api.trashFile(p)));
+  showHint(results.length&&results.every(Boolean)?t('hint_source_deleted'):t('hint_source_delete_failed'));
+}
+function confirmDeleteMultiSourceModal(){
+  const cardIds=Array.from(multiSelCards),labelIds=Array.from(multiSelLabels),stickyIds=Array.from(multiSelStickies);
+  const n=cardIds.length;
+  openModal(t('confirm_delete_source'),
+    `<p class="m-text">${n}</p><p class="m-sub">${t('confirm_delete_source_sub')}</p>`,
+    t('delete_source'),'danger-btn',
+    ()=>{deleteMultiSelWithSource(cardIds,labelIds,stickyIds);});
+}
 async function pickNewSource(f){
   const p=await api.pickSource();if(!p)return;
   snapshot();f.orig=p;f.missing=false;
@@ -2404,7 +2556,7 @@ function openSavePngModal(){
   openModal(
     t('save_png'),
     `<label class="m-label">${t('proj_name')}</label>
-     <input class="m-input" id="inp-png-name" value="${projName}" style="margin-bottom:12px">
+     <input class="m-input" id="inp-png-name" value="${escHtml(projName)}" style="margin-bottom:12px">
      <label class="m-label">${t('save_folder')}</label>
      <div style="display:flex;gap:6px;margin-bottom:12px">
        <input class="m-input" id="inp-png-folder" style="flex:1" readonly>
@@ -2527,7 +2679,21 @@ async function renderBoardToPng(scale, snap){
 
     let drew=false;
 
-    // Деактивированная карточка с сохранённым превью
+    // Деактивированная видео-карточка: используем кеш превью, а если его нет —
+    // cardPreviews не переживает перезапуск приложения, поэтому после рестарта он
+    // пуст, пока карточку не откроют на холсте — генерируем кадр здесь же, синхронно
+    if(f.disabled&&f.type==='v'&&!f.missing&&!cardPreviews.has(f.id)){
+      const{video:tmp,cleanup}=await loadVideoFrame(fileToUrl(f.orig),3000);
+      if(tmp){
+        try{
+          const cv=document.createElement('canvas');
+          cv.width=tmp.videoWidth||320;cv.height=tmp.videoHeight||180;
+          cv.getContext('2d').drawImage(tmp,0,0,cv.width,cv.height);
+          cardPreviews.set(f.id,cv.toDataURL('image/jpeg',0.7));
+        }catch{}
+      }
+      cleanup();
+    }
     if(f.disabled&&cardPreviews.has(f.id)){
       const pi=await loadImg(cardPreviews.get(f.id));
       if(pi){ctx.globalAlpha=0.55;ctx.filter='grayscale(50%)';ctx.drawImage(pi,cx,cy,cw,thumbH);ctx.globalAlpha=1;ctx.filter='none';drew=true;}
@@ -2537,10 +2703,14 @@ async function renderBoardToPng(scale, snap){
       const img=await loadImg(fileToUrl(f.orig));
       if(img){ctx.drawImage(img,cx,cy,cw,thumbH);drew=true;}
     }
-    // Видео — берём кадр из существующего DOM-элемента
+    // Видео — всегда через выделенное скрытое видео с принудительным seek.
+    // Кадр из <video> на самой карточке НЕ используем: readyState может показывать
+    // "данные есть" даже когда композитор давно не рисовал кадр (карточка была не
+    // видна долгое время) — drawImage в этом случае молча даёт пустой результат.
     if(!drew&&f.type==='v'&&!f.disabled&&!f.missing){
-      const vid=document.getElementById('card-'+f.id)?.querySelector('video');
-      if(vid&&vid.readyState>=2){ctx.drawImage(vid,cx,cy,cw,thumbH);drew=true;}
+      const{video:tmp,cleanup}=await loadVideoFrame(fileToUrl(f.orig),4000);
+      if(tmp){ctx.drawImage(tmp,cx,cy,cw,thumbH);drew=true;}
+      cleanup();
     }
     // Заглушка
     if(!drew){
@@ -2610,14 +2780,20 @@ async function renderBoardToPng(scale, snap){
 
 // ── СОХРАНЕНИЕ ───────────────────────────────────────────────────────
 async function saveBoardProjectByIndex(idx){
-  const proj=boardProjects[idx];if(!proj||!proj._path)return;
-  const data={...proj};delete data._path;delete data._dirty;delete data.thumbnail;await api.saveProject(proj._path,data);
-  proj._dirty=false;
+  const proj=boardProjects[idx];if(!proj||!proj._path)return false;
+  const data={...proj};delete data._path;delete data._dirty;delete data.thumbnail;
+  let ok=false;
+  try{ok=await api.saveProject(proj._path,data);}catch{ok=false;}
+  if(ok)proj._dirty=false;
+  else showHint(t('save_error'));
+  return ok;
 }
 async function saveBoardProject(){
   if(activeBoardIndex===-1)return;
   if(boardProject){boardProject.zoom=zoom;boardProject.canvasX=panX;boardProject.canvasY=panY;}
-  await saveBoardProjectByIndex(activeBoardIndex);showHint(t('save_proj')+' ✓');
+  const ok=await saveBoardProjectByIndex(activeBoardIndex);
+  if(!ok)return;
+  showHint(t('save_proj')+' ✓');
   if(boardProject&&boardProject._path){
     const proj=boardProject;
     const cvs=document.getElementById('board-canvas');
@@ -2642,13 +2818,22 @@ function openBoardWithData(data){
   try{addRecentProj(data._path);}catch{}
   boardProjects.push(data);activeBoardIndex=boardProjects.length-1;boardProject=boardProjects[activeBoardIndex];
   zoom=data.zoom||1;panX=data.canvasX||0;panY=data.canvasY||0;
-  undoStack.length=0;redoStack.length=0;activeFilter=null;selectedCardId=null;selectedLabelId=null;
+  // Новый объект проекта → WeakMap лениво создаст для него пустую историю сам
+  activeFilter=null;selectedCardId=null;selectedLabelId=null;
   searchQuery='';searchHits=[];searchHitIdx=0;
   showScreen('board');renderTabs();buildBoardScreen();
 }
 
+// Зажата ли кнопка мыши (drag). Capture-фаза — stopPropagation в карточках не мешает
+let _mouseIsDown=false;
+window.addEventListener('mousedown',()=>{_mouseIsDown=true;},true);
+window.addEventListener('mouseup',()=>{_mouseIsDown=false;},true);
+
 async function checkMissingFiles(){
-  if(!boardProject)return;let changed=false;
+  if(!boardProject)return;
+  // Не пересоздаём карточки вне доски и во время drag (refreshCard убил бы перетаскиваемый элемент)
+  if(getCurrentScreen()!=='board'||_mouseIsDown)return;
+  let changed=false;
   for(const f of getBoardFiles()){
     const exists=await api.fileExists(f.orig);
     if(!exists&&!f.missing){f.missing=true;refreshCard(f);changed=true;}
@@ -2741,10 +2926,10 @@ function makeSticky(s){
     e.stopPropagation();span.contentEditable='true';span.style.cursor='text';d.style.cursor='text';span.focus();
     const range=document.createRange();range.selectNodeContents(span);const sel=window.getSelection();sel.removeAllRanges();sel.addRange(range);
   });
-  span.addEventListener('blur',()=>{span.contentEditable='false';span.style.cursor='';d.style.cursor='move';s.text=span.textContent||'Sticky';snapshot();});
+  span.addEventListener('blur',()=>{span.contentEditable='false';span.style.cursor='';d.style.cursor='move';const nt=span.textContent||'Sticky';if(nt!==s.text){snapshot();s.text=nt;}});
   span.addEventListener('keydown',e=>{if(e.key==='Escape')span.blur();e.stopPropagation();});
 
-  let dragging=false,moved=false,dsx=0,dsy=0,dwx=0,dwy=0,prevDX2=0,prevDY2=0;
+  let dragging=false,moved=false,dsx=0,dsy=0,dwx=0,dwy=0;
   d.addEventListener('mousedown',e=>{
     if(e.target===span&&span.contentEditable==='true')return;
     if(e.target.closest('.sticky-resize'))return;
@@ -2758,11 +2943,12 @@ function makeSticky(s){
     }
     if(!multiSelStickies.has(s.id)||!hasMultiSel()){clearMultiSel();multiSelStickies.add(s.id);}
     d.classList.add('selected');selectedStickyId=s.id;selectedCardId=null;selectedLabelId=null;
-    dragging=true;moved=false;dsx=e.clientX;dsy=e.clientY;dwx=s.x;dwy=s.y;prevDX2=e.clientX;prevDY2=e.clientY;
+    dragging=true;moved=false;dsx=e.clientX;dsy=e.clientY;dwx=s.x;dwy=s.y;
+    window.addEventListener('mousemove',dragMove);window.addEventListener('mouseup',dragUp);
     if(hasMultiSel()){multiDragOX=e.clientX;multiDragOY=e.clientY;multiSelCards.forEach(id=>{const ff=getBoardFiles().find(x=>x.id===id);if(ff)multiDragC.set(id,{x:ff.x,y:ff.y});});multiSelLabels.forEach(id=>{const ll=getLabels().find(x=>x.id===id);if(ll)multiDragL.set(id,{x:ll.x,y:ll.y});});multiSelStickies.forEach(id=>{const ss=getStickies().find(x=>x.id===id);if(ss)multiDragS.set(id,{x:ss.x,y:ss.y});});}
     document.getElementById('board-canvas').focus();closeCtx();
   });
-  window.addEventListener('mousemove',e=>{
+  const dragMove=e=>{
     if(!dragging)return;
     if(!moved){snapshot();moved=true;}
     if(hasMultiSel()&&multiSelStickies.has(s.id)){
@@ -2789,8 +2975,8 @@ function makeSticky(s){
       if(snapOn){const sv=snapW(nx,ny);nx=sv.wx;ny=sv.wy;}
       s.x=nx;s.y=ny;const sc2=toScreen(s.x,s.y);d.style.left=sc2.sx+'px';d.style.top=sc2.sy+'px';
     }
-  });
-  window.addEventListener('mouseup',()=>{if(dragging)dragging=false;});
+  };
+  const dragUp=()=>{dragging=false;window.removeEventListener('mousemove',dragMove);window.removeEventListener('mouseup',dragUp);};
   d.addEventListener('contextmenu',e=>{
     e.preventDefault();e.stopPropagation();
     if(hasMultiSel()&&multiSelStickies.has(s.id)){openMultiCtx(e.clientX,e.clientY);return;}
@@ -2896,10 +3082,10 @@ function makeLabelEl(label){
     e.stopPropagation();span.contentEditable='true';span.style.cursor='text';d.style.cursor='text';span.focus();
     const range=document.createRange();range.selectNodeContents(span);const sel=window.getSelection();sel.removeAllRanges();sel.addRange(range);
   });
-  span.addEventListener('blur',()=>{span.contentEditable='false';span.style.cursor='';d.style.cursor='move';label.text=span.textContent||'Label';snapshot();});
+  span.addEventListener('blur',()=>{span.contentEditable='false';span.style.cursor='';d.style.cursor='move';const nt=span.textContent||'Label';if(nt!==label.text){snapshot();label.text=nt;}});
   span.addEventListener('keydown',e=>{if(e.key==='Escape')span.blur();e.stopPropagation();});
 
-  let dragging=false,moved=false,dsx=0,dsy=0,dwx=0,dwy=0,prevDX=0,prevDY=0;
+  let dragging=false,moved=false,dsx=0,dsy=0,dwx=0,dwy=0;
   d.addEventListener('mousedown',e=>{
     if(e.target===span&&span.contentEditable==='true')return;
     if(e.target.closest('.label-resize-h'))return;
@@ -2913,11 +3099,12 @@ function makeLabelEl(label){
     }
     if(!multiSelLabels.has(label.id)||!hasMultiSel()){clearMultiSel();multiSelLabels.add(label.id);}
     d.classList.add('selected');selectedLabelId=label.id;selectedCardId=null;
-    dragging=true;moved=false;dsx=e.clientX;dsy=e.clientY;dwx=label.x;dwy=label.y;prevDX=e.clientX;prevDY=e.clientY;
+    dragging=true;moved=false;dsx=e.clientX;dsy=e.clientY;dwx=label.x;dwy=label.y;
+    window.addEventListener('mousemove',dragMove);window.addEventListener('mouseup',dragUp);
     if(hasMultiSel()){multiDragOX=e.clientX;multiDragOY=e.clientY;multiSelCards.forEach(id=>{const ff=getBoardFiles().find(x=>x.id===id);if(ff)multiDragC.set(id,{x:ff.x,y:ff.y});});multiSelLabels.forEach(id=>{const ll=getLabels().find(x=>x.id===id);if(ll)multiDragL.set(id,{x:ll.x,y:ll.y});});multiSelStickies.forEach(id=>{const ss=getStickies().find(x=>x.id===id);if(ss)multiDragS.set(id,{x:ss.x,y:ss.y});});}
     document.getElementById('board-canvas').focus();closeCtx();
   });
-  window.addEventListener('mousemove',e=>{
+  const dragMove=e=>{
     if(!dragging)return;
     if(!moved){snapshot();moved=true;}
     if(hasMultiSel()&&multiSelLabels.has(label.id)){
@@ -2944,8 +3131,8 @@ function makeLabelEl(label){
       if(snapOn){const s=snapW(nx,ny);nx=s.wx;ny=s.wy;}
       label.x=nx;label.y=ny;const sc2=toScreen(label.x,label.y);d.style.left=sc2.sx+'px';d.style.top=sc2.sy+'px';
     }
-  });
-  window.addEventListener('mouseup',()=>{if(dragging){dragging=false;}});
+  };
+  const dragUp=()=>{dragging=false;window.removeEventListener('mousemove',dragMove);window.removeEventListener('mouseup',dragUp);};
   d.addEventListener('contextmenu',e=>{
     e.preventDefault();e.stopPropagation();
     if(hasMultiSel()&&multiSelLabels.has(label.id)){openMultiCtx(e.clientX,e.clientY);return;}
@@ -3049,6 +3236,9 @@ function buildManualPage(){
     itm('ti-info-circle',r?'Метаданные':'Metadata',
       r?'ПКМ → Метаданные. Показывает параметры генерации: prompt, LoRA, workflow и др.':'RMB → Metadata. Shows generation parameters: prompt, LoRA, workflow, etc.',
       r?'Поддерживаются: PNG (A1111, ComfyUI), JPEG, WebP, MP4, MKV.':'Supported: PNG (A1111, ComfyUI), JPEG, WebP, MP4, MKV.'),
+    itm('ti-trash-x',r?'Удалить источник':'Delete source',
+      r?'ПКМ на карточке → Удалить источник. Удаляет карточку с доски и сам файл — в Корзину.':'RMB on a card → Delete source. Removes the card from the board and sends the file to the Recycle Bin.',
+      r?'Восстановить файл из приложения нельзя — только вручную из Корзины ОС.':'The app cannot restore it — only manually from the OS Recycle Bin.'),
   ].join(''));
 
   const labstick=sec(r?'Надписи и стикеры':'Labels & Stickies',[
@@ -3114,6 +3304,7 @@ function buildManualPage(){
       sc(['Ctrl','R'],r?'Переименовать выделенный элемент':'Rename selected element'),
       sc(['Ctrl','D'],r?'Деактивировать / Активировать выделенное':'Deactivate / Activate selected'),
       sc(['Delete'],r?'Удалить выделенный элемент':'Delete selected element'),
+      sc(['Shift','Delete'],r?'Быстрое удаление источника (если включено в настройках)':'Fast source delete (if enabled in Settings)'),
       sc(['Escape'],r?'Снять выделение / сбросить поиск':'Clear selection / clear search'),
       sc(['Ctrl','Click'],r?'Переключить элемент в мультиселекте':'Toggle element in multiselect'),
       sc(['Ctrl','Shift','Click/Drag'],r?'Добавить к выделению (зелёный курсор)':'Add to selection (green cursor)'),
@@ -3185,6 +3376,15 @@ function buildSettingsScreen(){
             </div>`).join('')}
           </div>
         </div>
+        <div class="s-sec"><div class="s-sec-title">${t('fast_source_delete')}</div>
+          <div class="s-row">
+            <div><div class="s-lbl">${t('fast_source_delete')}</div><div class="s-sub">${t('fast_source_delete_sub')}</div></div>
+            <div class="lang-sw">
+              <button class="sw-opt${!fastSourceDelete?' sel':''}" data-fsd="off">${t('off')}</button>
+              <button class="sw-opt${fastSourceDelete?' sel':''}" data-fsd="on">${t('on')}</button>
+            </div>
+          </div>
+        </div>
         <div class="s-sec"><div class="s-sec-title">${t('zoom_speed')}</div>
           <div class="s-row">
             <div><div class="s-lbl">${t('zoom_speed')}</div><div class="s-sub">${t('zoom_speed_sub')}</div></div>
@@ -3228,7 +3428,7 @@ function buildSettingsScreen(){
         <div class="s-head"><div class="s-head-title">${t('about')}</div></div>
         <div class="s-body">
           <div class="s-sec"><div class="about-card">
-            <div class="about-app-row"><div class="about-icon"><i class="ti ti-layout-board"></i></div><div><div class="about-name">VidBoards</div><div class="about-ver">v1.3.0</div></div></div></div>
+            <div class="about-app-row"><div class="about-icon"><i class="ti ti-layout-board"></i></div><div><div class="about-name">VidBoards</div><div class="about-ver">v1.4.0</div></div></div></div>
             <div class="about-dev">${t('developer')}: <strong>${t('dev_name')}</strong></div>
             <div style="margin-top:5px;display:flex;flex-direction:column;gap:3px">
               <span class="about-link" id="link-dev-site" style="font-size:10px"><i class="ti ti-world"></i> kuzmabogdanov.ru</span>
@@ -3247,13 +3447,14 @@ function buildSettingsScreen(){
           </div>
           <div class="s-sec"><div style="font-size:10px;color:var(--text4);line-height:1.8">${t('copyright')} · VidBoards<br><span id="link-terms" style="color:var(--accent-t);cursor:pointer">${t('terms')}</span> &nbsp;·&nbsp; <span id="link-privacy" style="color:var(--accent-t);cursor:pointer">${t('privacy')}</span></div></div>
         </div>
-        <div class="s-footer"><span class="s-footer-txt">${t('copyright')}</span><span class="s-footer-txt">Build 2026.06</span></div>
+        <div class="s-footer"><span class="s-footer-txt">${t('copyright')}</span><span class="s-footer-txt">Build 2026.07</span></div>
       </div>
     </div>`;
   document.querySelectorAll('.sn-item[data-page]').forEach(item=>{item.onclick=()=>{document.querySelectorAll('.sn-item').forEach(i=>i.classList.remove('active'));item.classList.add('active');document.querySelectorAll('.s-page').forEach(p=>p.classList.remove('active'));document.getElementById('s-'+item.dataset.page).classList.add('active');};});
   document.querySelectorAll('.theme-opt').forEach(opt=>{opt.onclick=()=>applyTheme(opt.dataset.theme);});
   document.querySelectorAll('.lang-opt').forEach(opt=>{opt.onclick=()=>applyLang(opt.dataset.lang,false);});
   document.querySelectorAll('.thumb-mode-opt').forEach(opt=>{opt.onclick=()=>{thumbMode=opt.dataset.mode;persist();buildSettingsScreen();};});
+  document.querySelectorAll('.sw-opt[data-fsd]').forEach(opt=>{opt.onclick=()=>{fastSourceDelete=(opt.dataset.fsd==='on');persist();buildSettingsScreen();};});
   const sidInput=document.getElementById('sid-input');
   const sidSave=()=>{
     let v=parseInt(sidInput.value)||3;
@@ -3292,6 +3493,7 @@ async function init(){
   if(settings.snapOn!==undefined)snapOn=settings.snapOn;
   if(settings.optimizePlay!==undefined)optimizePlay=settings.optimizePlay;
   if(settings.loopEnabled!==undefined)loopEnabled=settings.loopEnabled;
+  if(settings.fastSourceDelete!==undefined)fastSourceDelete=settings.fastSourceDelete;
   const locale=await api.getLocale();
   const sys=(locale||'en').toLowerCase().split('-')[0];
   const slavic=['ru','be','uk'];
@@ -3329,11 +3531,12 @@ async function init(){
     if(!dirty.length){api.forceClose();return;}
     openModal(
       t('unsaved_app'),
-      `<p class="m-text">${dirty.map(p=>`«${p.name}»`).join(', ')}</p><p class="m-sub">${t('unsaved_app_sub')}</p>`,
+      `<p class="m-text">${dirty.map(p=>`«${escHtml(p.name)}»`).join(', ')}</p><p class="m-sub">${t('unsaved_app_sub')}</p>`,
       t('yes_save'),'ok',
       async()=>{
-        for(let i=0;i<boardProjects.length;i++){if(boardProjects[i]._dirty)await saveBoardProjectByIndex(i);}
-        api.forceClose();
+        let allOk=true;
+        for(let i=0;i<boardProjects.length;i++){if(boardProjects[i]._dirty){const ok=await saveBoardProjectByIndex(i);if(!ok)allOk=false;}}
+        if(allOk)api.forceClose();
       }
     );
     const nb=document.getElementById('m-cancel');

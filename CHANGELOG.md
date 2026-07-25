@@ -1,5 +1,11 @@
 # Changelog
 
+## [1.4.0] — 2026-07-24
+
+### Added
+- **Delete source** — new context-menu item on cards ("Delete source") removes the card from the board and sends the source file to the OS Recycle Bin, with a confirmation dialog. Works for single cards and multi-selection.
+- **Fast source delete** — new setting in Settings → Appearance: when enabled, Shift+Delete / Shift+Backspace deletes the selected card(s) and their source file(s) instantly, without a confirmation dialog.
+
 ## [1.3.0] — 2026-06-17
 
 ### Added

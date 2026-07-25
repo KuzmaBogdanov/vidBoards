@@ -91,9 +91,12 @@ function createWindow() {
     mainWindow.webContents.send('app-close-requested');
   });
 
-  if (process.argv.includes('--dev')) {
-    mainWindow.webContents.openDevTools({ mode: 'detach' });
-  }
+  // F12 — ручной тоггл DevTools (меню приложения отключено на Win/Linux, штатный акселератор не работает)
+  mainWindow.webContents.on('before-input-event', (event, input) => {
+    if (input.type === 'keyDown' && input.key === 'F12') {
+      mainWindow.webContents.toggleDevTools();
+    }
+  });
 }
 
 app.whenReady().then(() => {
@@ -102,16 +105,33 @@ app.whenReady().then(() => {
   TRASH_DIR    = path.join(PROJECTS_DIR, '.trash');
   if (!fs.existsSync(PROJECTS_DIR)) fs.mkdirSync(PROJECTS_DIR, { recursive: true });
   if (!fs.existsSync(TRASH_DIR))    fs.mkdirSync(TRASH_DIR,    { recursive: true });
+  cleanupTrash();
   createWindow();
 });
+
+// Проекты в корзине старше 30 дней удаляются навсегда (обещание из UI)
+function cleanupTrash() {
+  try {
+    fs.readdirSync(TRASH_DIR).filter(f => f.endsWith('.meta')).forEach(mf => {
+      const metaPath = path.join(TRASH_DIR, mf);
+      try {
+        const m = JSON.parse(fs.readFileSync(metaPath, 'utf8'));
+        const age = Date.now() - new Date(m.deletedAt).getTime();
+        if (isFinite(age) && age > 30 * 86400000) {
+          const vdb = metaPath.replace(/\.meta$/, '');
+          if (fs.existsSync(vdb)) fs.unlinkSync(vdb);
+          fs.unlinkSync(metaPath);
+        }
+      } catch {}
+    });
+  } catch {}
+}
 
 app.on('window-all-closed', () => { if (process.platform !== 'darwin') app.quit(); });
 // macOS: re-open window when dock icon is clicked and no windows are open
 app.on('activate', () => { if (BrowserWindow.getAllWindows().length === 0) createWindow(); });
 
 // ── ОКНО ──────────────────────────────────────────────────────────
-ipcMain.on('win-minimize',   () => mainWindow.minimize());
-ipcMain.on('win-maximize',   () => mainWindow.isMaximized() ? mainWindow.unmaximize() : mainWindow.maximize());
 ipcMain.on('win-close',      () => mainWindow.close());
 ipcMain.on('win-force-close',() => mainWindow.destroy());
 
@@ -153,8 +173,8 @@ ipcMain.handle('save-file-as', async (_, src) => {
     filters: [{ name: 'Файл', extensions: [ext] }]
   });
   if (r.canceled) return null;
-  fs.copyFileSync(src, r.filePath);
-  return r.filePath;
+  try { fs.copyFileSync(src, r.filePath); return r.filePath; }
+  catch (e) { log.error('save-file-as failed:', e); return null; }
 });
 
 ipcMain.handle('pick-source', async () => {
@@ -167,37 +187,45 @@ ipcMain.handle('pick-source', async () => {
 });
 
 ipcMain.handle('file-exists', (_, p) => fs.existsSync(p));
+ipcMain.handle('trash-file', async (_, p) => {
+  try { await shell.trashItem(p); return true; }
+  catch { return false; }
+});
 ipcMain.handle('file-info', (_, p) => {
   try { const s = fs.statSync(p); return { size: s.size, exists: true }; }
   catch { return { size: 0, exists: false }; }
 });
 
 // ── ПРОЕКТЫ ───────────────────────────────────────────────────────
-ipcMain.handle('list-projects', () => {
-  return fs.readdirSync(PROJECTS_DIR)
-    .filter(f => f.endsWith('.vdb'))
-    .map(f => {
-      const fp = path.join(PROJECTS_DIR, f);
-      const stat = fs.statSync(fp);
+ipcMain.handle('list-projects', async () => {
+  let files = [];
+  try { files = await fs.promises.readdir(PROJECTS_DIR); } catch { return []; }
+  const projects = await Promise.all(files.filter(f => f.endsWith('.vdb')).map(async f => {
+    const fp = path.join(PROJECTS_DIR, f);
+    try {
+      const [stat, buf] = await Promise.all([
+        fs.promises.stat(fp),
+        fs.promises.readFile(fp, 'utf8')
+      ]);
       const thumbPath = fp.replace(/\.vdb$/, '.thumb.jpg');
-      const thumbnail = fs.existsSync(thumbPath)
-        ? 'data:image/jpeg;base64,' + fs.readFileSync(thumbPath).toString('base64')
-        : null;
+      let thumbnail = null;
       try {
-        const d = JSON.parse(fs.readFileSync(fp, 'utf8'));
-        return {
-          path: fp,
-          name: d.name || f.replace('.vdb',''),
-          modified: stat.mtime.toISOString(),
-          fileCount: (d.files||[]).length,
-          videoCount: (d.files||[]).filter(x=>x.type==='v').length,
-          thumbnail
-        };
-      } catch {
-        return { path:fp, name:f.replace('.vdb',''), modified:stat.mtime.toISOString(), fileCount:0, videoCount:0, thumbnail };
-      }
-    })
-    .sort((a,b) => new Date(b.modified)-new Date(a.modified));
+        const tb = await fs.promises.readFile(thumbPath);
+        thumbnail = 'data:image/jpeg;base64,' + tb.toString('base64');
+      } catch {}
+      let d = {};
+      try { d = JSON.parse(buf); } catch {}
+      return {
+        path: fp,
+        name: d.name || f.replace('.vdb',''),
+        modified: stat.mtime.toISOString(),
+        fileCount: (d.files||[]).length,
+        videoCount: (d.files||[]).filter(x=>x.type==='v').length,
+        thumbnail
+      };
+    } catch { return null; }
+  }));
+  return projects.filter(Boolean).sort((a,b) => new Date(b.modified)-new Date(a.modified));
 });
 
 ipcMain.handle('get-projects-meta', async (_, paths) => {
@@ -235,14 +263,6 @@ ipcMain.handle('save-thumb', (_, vdbPath, dataUrl) => {
   } catch { return false; }
 });
 
-ipcMain.handle('new-project', (_, name) => {
-  const safe = name.replace(/[<>:"/\\|?*]/g,'_');
-  const fp = path.join(PROJECTS_DIR, safe+'.vdb');
-  const data = { name, files:[], labels:[], canvasX:0, canvasY:0, zoom:1, created: new Date().toISOString() };
-  fs.writeFileSync(fp, JSON.stringify(data, null, 2));
-  return fp;
-});
-
 ipcMain.handle('new-project-in-folder', (_, name, folder) => {
   try {
     const targetDir = folder || PROJECTS_DIR;
@@ -256,8 +276,13 @@ ipcMain.handle('new-project-in-folder', (_, name, folder) => {
 });
 
 ipcMain.handle('save-project', (_, fp, data) => {
-  fs.writeFileSync(fp, JSON.stringify(data, null, 2));
-  return true;
+  try {
+    fs.writeFileSync(fp, JSON.stringify(data, null, 2));
+    return true;
+  } catch (e) {
+    log.error('save-project failed:', e);
+    return false;
+  }
 });
 
 ipcMain.handle('open-project', async (_, fp) => {
@@ -286,8 +311,19 @@ ipcMain.handle('rename-project', (_, oldPath, newName) => {
     d.name = newName;
     const safe = newName.replace(/[<>:"/\\|?*]/g,'_');
     const newPath = path.join(path.dirname(oldPath), safe+'.vdb');
+    // На Windows пути регистронезависимы: смена только регистра — это тот же файл
+    const samePath = process.platform === 'win32'
+      ? newPath.toLowerCase() === oldPath.toLowerCase()
+      : newPath === oldPath;
+    if (!samePath && fs.existsSync(newPath)) return null;
     fs.writeFileSync(newPath, JSON.stringify(d, null, 2));
-    if (newPath !== oldPath) fs.unlinkSync(oldPath);
+    if (!samePath) {
+      fs.unlinkSync(oldPath);
+      const oldThumb = oldPath.replace(/\.vdb$/, '.thumb.jpg');
+      if (fs.existsSync(oldThumb)) {
+        try { fs.renameSync(oldThumb, newPath.replace(/\.vdb$/, '.thumb.jpg')); } catch {}
+      }
+    }
     return newPath;
   } catch { return null; }
 });
@@ -330,11 +366,6 @@ ipcMain.handle('restore-project', (_, fp) => {
     if (fs.existsSync(meta)) fs.unlinkSync(meta);
     return true;
   } catch { return false; }
-});
-
-ipcMain.handle('empty-trash', () => {
-  fs.readdirSync(TRASH_DIR).forEach(f => fs.unlinkSync(path.join(TRASH_DIR, f)));
-  return true;
 });
 
 ipcMain.handle('pick-folder', async () => {
@@ -382,7 +413,8 @@ ipcMain.handle('paste-clipboard-image', () => {
 
 ipcMain.handle('save-png', (_, dataUrl, name, folder) => {
   try {
-    const filePath = path.join(folder || app.getPath('desktop'), (name || 'canvas') + '.png');
+    const safe = path.basename(String(name || 'canvas')).replace(/[<>:"/\\|?*]/g, '_') || 'canvas';
+    const filePath = path.join(folder || app.getPath('desktop'), safe + '.png');
     const base64 = dataUrl.replace(/^data:image\/png;base64,/, '');
     fs.writeFileSync(filePath, Buffer.from(base64, 'base64'));
     return filePath;

@@ -2,8 +2,6 @@ const { contextBridge, ipcRenderer, webUtils } = require('electron');
 
 contextBridge.exposeInMainWorld('api', {
   // Окно
-  minimize:   () => ipcRenderer.send('win-minimize'),
-  maximize:   () => ipcRenderer.send('win-maximize'),
   close:      () => ipcRenderer.send('win-close'),
   forceClose: () => ipcRenderer.send('win-force-close'),
 
@@ -14,6 +12,7 @@ contextBridge.exposeInMainWorld('api', {
   saveFileAs:     (p)   => ipcRenderer.invoke('save-file-as', p),
   pickSource:     ()    => ipcRenderer.invoke('pick-source'),
   fileExists:     (p)   => ipcRenderer.invoke('file-exists', p),
+  trashFile:      (p)   => ipcRenderer.invoke('trash-file', p),
   fileInfo:       (p)   => ipcRenderer.invoke('file-info', p),
   readMeta:       (p)   => ipcRenderer.invoke('read-metadata', p),
 
@@ -26,7 +25,6 @@ contextBridge.exposeInMainWorld('api', {
   // Проекты
   listProjects:          ()          => ipcRenderer.invoke('list-projects'),
   getProjectsMeta:       (paths)     => ipcRenderer.invoke('get-projects-meta', paths),
-  newProject:            (name)      => ipcRenderer.invoke('new-project', name),
   newProjectInFolder:    (name, dir) => ipcRenderer.invoke('new-project-in-folder', name, dir),
   saveProject:           (fp, data)  => ipcRenderer.invoke('save-project', fp, data),
   openProject:           (fp)        => ipcRenderer.invoke('open-project', fp),
@@ -34,7 +32,6 @@ contextBridge.exposeInMainWorld('api', {
   trashProject:          (fp)        => ipcRenderer.invoke('trash-project', fp),
   listTrash:             ()          => ipcRenderer.invoke('list-trash'),
   restoreProject:        (fp)        => ipcRenderer.invoke('restore-project', fp),
-  emptyTrash:            ()          => ipcRenderer.invoke('empty-trash'),
   pickFolder:            ()          => ipcRenderer.invoke('pick-folder'),
   getDefaultProjectsDir: ()          => ipcRenderer.invoke('get-default-projects-dir'),
   getDesktopDir:         ()          => ipcRenderer.invoke('get-desktop-dir'),
