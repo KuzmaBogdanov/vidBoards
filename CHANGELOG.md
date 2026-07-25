@@ -6,6 +6,9 @@
 - **Delete source** — new context-menu item on cards ("Delete source") removes the card from the board and sends the source file to the OS Recycle Bin, with a confirmation dialog. Works for single cards and multi-selection.
 - **Fast source delete** — new setting in Settings → Appearance: when enabled, Shift+Delete / Shift+Backspace deletes the selected card(s) and their source file(s) instantly, without a confirmation dialog.
 
+### Fixed
+- **Offline startup** — icon font (Tabler Icons) and UI fonts (Montserrat, Jost) are now bundled with the app instead of being loaded from `cdn.jsdelivr.net` / `fonts.googleapis.com`. Fixes missing button icons and a startup delay when running fully offline. Update checks still use GitHub (the only update channel), unaffected by this change.
+
 ## [1.3.0] — 2026-06-17
 
 ### Added
